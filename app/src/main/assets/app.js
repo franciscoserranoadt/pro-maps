@@ -11,7 +11,7 @@ const store = {
 };
 const DEF = { voice: true, radars: true, semaforos: true, incid: true, reports: true, beep: true,
   tomtom: '', style: 'auto', tolls: false, highways: false, traffic: false,
-  fuel: 'g95', gas: true, limit: true, limitWarn: true };
+  fuel: 'g95', gas: true, limit: true, limitWarn: true, ttinc: true };
 const cfg = Object.assign({}, DEF, store.get('cfg', {}));
 const saveCfg = () => store.set('cfg', cfg);
 
@@ -118,6 +118,7 @@ const CAT = {
   retencion: { e: '🚗', c: '#e65100', n: 'Retención' },
   atasco:    { e: '🚗', c: '#e65100', n: 'Atasco' },
   v16:       { e: '🛑', c: '#ff6f00', n: 'Vehículo detenido (V16)' },
+  averia:    { e: '🛑', c: '#ff6f00', n: 'Vehículo averiado' },
   meteo:     { e: '❄️', c: '#0288d1', n: 'Meteorología adversa' },
   animal:    { e: '🦌', c: '#6d4c41', n: 'Animales en la vía' },
   obstaculo: { e: '⚠️', c: '#f9a825', n: 'Obstáculo en la vía' },
@@ -315,7 +316,8 @@ async function boot() {
   cleanReports();
   loadRadars(false);
   loadDgt(); setInterval(loadDgt, 3 * 60000);
-  setTimeout(() => loadFuel(false), 2500); setInterval(() => loadFuel(false), 60 * 60000);
+  setTimeout(() => loadFuel(false), 2500);
+  setInterval(() => { const every = navigating ? 180000 : 300000; if (Date.now() - ttAt > every) loadTT(); }, 30000); setInterval(() => loadFuel(false), 60 * 60000);
   setInterval(() => { cleanReports(); refreshPois(); applyStyle(false); }, 5 * 60000);
   if (!N && navigator.geolocation) {
     navigator.geolocation.watchPosition(p => onGps(p.coords.latitude, p.coords.longitude, p.coords.speed == null ? -1 : p.coords.speed,
@@ -355,8 +357,8 @@ function onStyleLoad() {
     paint: { 'line-color': '#0b3d91', 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 7, 16, 16] } });
   map.addLayer({ id: 'routeLine', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: { 'line-color': '#2f8cff', 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 4, 16, 11] } });
-  map.addLayer({ id: 'segs', type: 'line', source: 'segs', minzoom: 10,
-    paint: { 'line-color': ['get', 'color'], 'line-width': 5, 'line-dasharray': [1.5, 1], 'line-opacity': 0.8 } });
+  map.addLayer({ id: 'segs', type: 'line', source: 'segs', minzoom: 9, layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': ['get', 'color'], 'line-width': ['get', 'w'], 'line-opacity': 0.85 } });
   map.addLayer({ id: 'poisDot', type: 'circle', source: 'pois', maxzoom: 9.5,
     paint: { 'circle-color': ['get', 'color'], 'circle-radius': 3.5, 'circle-stroke-color': '#fff', 'circle-stroke-width': 1 } });
   map.addLayer({ id: 'pois', type: 'symbol', source: 'pois', minzoom: 9.5,
@@ -387,16 +389,22 @@ function refreshPois() {
   allPois = [];
   if (cfg.radars) for (const r of radars) if (r.cat !== 'semaforo' || cfg.semaforos) allPois.push(r);
   if (cfg.incid) for (const d of dgt) allPois.push(d);
+  if (cfg.ttinc && cfg.tomtom) for (const t of ttInc) {
+    // si la DGT ya tiene lo mismo a menos de 300 m, no se repite
+    if (cfg.incid && dgt.some(d => d.cat === t.cat && Math.abs(d.lat - t.lat) < 0.003 && dist([d.lon, d.lat], [t.lon, t.lat]) < 300)) continue;
+    allPois.push(t);
+  }
   if (cfg.reports) for (const r of reports) allPois.push(r);
   if (map && map.getSource('pois')) {
     map.getSource('pois').setData({ type: 'FeatureCollection', features: allPois.map(p => ({
       type: 'Feature', geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
       properties: { id: p.id, cat: p.cat, icon: 'i_' + p.cat, color: CAT[p.cat].c, max: p.max || 0, prio: IS_CAMERA(p.cat) ? 1 : 2 } })) });
-    map.getSource('segs').setData({ type: 'FeatureCollection', features: allPois.filter(p => p.lon2 != null).map(p => ({
-      type: 'Feature', geometry: { type: 'LineString', coordinates: [[p.lon, p.lat], [p.lon2, p.lat2]] },
-      properties: { color: CAT[p.cat].c } })) });
+    map.getSource('segs').setData({ type: 'FeatureCollection', features: allPois.filter(p => p.lon2 != null || p.line).map(p => ({
+      type: 'Feature', geometry: { type: 'LineString', coordinates: p.line || [[p.lon, p.lat], [p.lon2, p.lat2]] },
+      properties: { color: p.cat === 'retencion' ? (p.mag >= 3 ? '#b71c1c' : p.mag === 2 ? '#e53935' : '#fb8c00') : CAT[p.cat].c, w: p.line ? 7 : 5 } })) });
   }
   if (active) indexRoutePois(active);
+  if (preview) routes.forEach(indexRoutePois);
 }
 function poiById(id) { return allPois.find(p => p.id === id); }
 
@@ -405,8 +413,9 @@ function showPoi(f) {
   const c = CAT[p.cat];
   let h = '<div class="pop"><b>' + c.e + ' ' + esc(c.n) + (p.max ? ' · ' + p.max + ' km/h' : '') + '</b>';
   if (p.sub) h += '<div>' + esc(p.sub) + '</div>';
-  if (p.since) { const d = new Date(p.since); if (!isNaN(d)) h += '<div class="muted">Desde ' + d.toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) + ' · DGT</div>'; }
+  if (p.since) { const d = new Date(p.since); if (!isNaN(d)) h += '<div class="muted">Desde ' + d.toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) + ' · ' + (p.src || 'DGT') + '</div>'; }
   if (p.src !== 'DGT' && !p.mine && IS_CAMERA(p.cat)) h += '<div class="muted">Fuente: OpenStreetMap</div>';
+  if (p.src === 'TomTom') h += '<div class="muted">' + (p.delay >= 60 ? '⏱️ Retraso: ' + fmtTime(p.delay) + ' · ' : '') + (p.len ? fmtDist(p.len) + ' · ' : '') + 'Fuente: TomTom en directo</div>';
   h += '<div class="pb"><button data-go="1">🚗 Ir aquí</button>' + (p.mine ? '<button data-del="1">🗑️ Ya no está</button>' : '') + '</div></div>';
   const pop = new maplibregl.Popup({ offset: 16, maxWidth: '300px' }).setLngLat([p.lon, p.lat]).setHTML(h).addTo(map);
   const el = pop.getElement();
@@ -637,6 +646,7 @@ function indexRoutePois(r) {
   const pad = 0.004, [a, b, c, d] = r.bbox, out = [];
   for (const p of allPois) {
     const pts = [[p.lon, p.lat]]; if (p.lon2 != null) pts.push([p.lon2, p.lat2]);
+    if (p.line && p.line.length > 2) pts.push(p.line[Math.floor(p.line.length / 2)]);
     let best = null;
     for (const pt of pts) {
       if (pt[0] < a - pad || pt[0] > c + pad || pt[1] < b - pad || pt[1] > d + pad) continue;
@@ -701,6 +711,7 @@ async function goTo(d, keepStops) {
   preview = true; selIdx = 0; setFollow(false);
   drawRoutes(); fitRoutes();
   routeSheet();
+  if (cfg.tomtom && cfg.ttinc) loadTT().then(() => { if (preview && sheetOpen() && $('#rGo')) routeSheet(); });
 }
 function fitRoutes() {
   let a = 180, b = 90, c = -180, d = -90;
@@ -763,6 +774,7 @@ function startNav() {
   document.body.classList.add('nav'); $('#btnGas').classList.remove('hidden');
   $('#searchBar').classList.add('hidden'); $('#banner').classList.remove('hidden'); $('#navBar').classList.remove('hidden');
   drawRoutes(); setFollow(true);
+  if (cfg.tomtom && cfg.ttinc && Date.now() - ttAt > 60000) loadTT();
   const first = active.steps[0];
   say((first ? first.pre + '. ' : '') + (active.nCam ? 'Hay ' + active.nCam + (active.nCam === 1 ? ' radar' : ' radares') + ' en la ruta.' : ''), true);
   if (me) navUpdate();
@@ -899,7 +911,8 @@ function checkAlerts() {
     let t;
     if (c.p.cat === 'tramo') t = c.p.fin ? 'Fin de tramo de velocidad controlada' : 'Tramo de velocidad controlada a ' + sayDist(c.d) + (c.p.max ? '. Límite ' + c.p.max : '');
     else if (IS_CAMERA(c.p.cat)) t = n + ' a ' + sayDist(c.d) + (c.p.max ? '. Límite ' + c.p.max : '');
-    else t = 'Atención. ' + n + ' a ' + sayDist(c.d) + (c.p.road ? ' en la ' + c.p.road : '');
+    else t = 'Atención. ' + n + ' a ' + sayDist(c.d) + (c.p.road ? ' en la ' + c.p.road : '') +
+      (c.p.delay >= 90 ? '. Pierdes unos ' + Math.round(c.p.delay / 60) + ' minutos' : '');
     beep(1); say(t);
     break; // un aviso de voz por posición
   }
@@ -989,6 +1002,7 @@ $('#btnLayers').onclick = () => {
     t('radars', '📷 Radares fijos y de tramo', radars.length + ' radares en España (OpenStreetMap)') +
     t('semaforos', '🚦 Cámaras de semáforo') +
     t('incid', '⚠️ Incidencias de la DGT', dgt.length + ' ahora mismo · se actualiza cada 3 min') +
+    (cfg.tomtom ? t('ttinc', '🚗 Atascos e incidencias de TomTom', ttInc.length + ' cerca de ti o de tu ruta · en directo') : '') +
     t('reports', '🚓 Mis avisos', reports.length + ' activos') +
     t('gas', '⛽ Gasolineras con precio', (fuel.length || 0) + ' gasolineras · se ve al acercar el mapa') +
     '<div class="set"><label>Estilo del mapa</label><select id="stSel"><option value="auto">Automático (oscuro de noche)</option><option value="light">Claro</option>' +
@@ -997,6 +1011,7 @@ $('#btnLayers').onclick = () => {
   $('#stSel').onchange = e => { cfg.style = e.target.value; saveCfg(); applyStyle(true); };
   document.querySelectorAll('#sheetBody input[type=checkbox]').forEach(i => i.onchange = () => {
     cfg[i.dataset.k] = i.checked; saveCfg(); refreshPois();
+    if (i.dataset.k === 'ttinc' && cfg.ttinc) loadTT();
     if (map.getLayer('gas')) map.setLayoutProperty('gas', 'visibility', cfg.gas ? 'visible' : 'none');
   });
 };
@@ -1018,11 +1033,12 @@ function settingsSheet() {
     '<button class="btn alt" id="bUpd">🔄 Buscar actualización de la app (v' + esc(ver) + ')</button>' +
     '<button class="btn alt" id="bTest">🔊 Probar la voz</button>' +
     '<div class="muted" style="margin-top:12px">Mapa © OpenStreetMap y OpenFreeMap · Rutas Valhalla (FOSSGIS) · Incidencias DGT (datos abiertos) · Búsqueda Photon y CartoCiudad (IGN). ' +
-    'Precios de carburantes: Ministerio (datos abiertos). Los radares móviles reales solo se pueden saber si alguien los avisa: usa el botón ⚠️.</div>');
+    'Atascos e incidencias en directo: TomTom (con tu clave). Precios de carburantes: Ministerio (datos abiertos). Los radares móviles reales solo se pueden saber si alguien los avisa: usa el botón ⚠️.</div>');
   document.querySelectorAll('#sheetBody input[type=checkbox]').forEach(i => i.onchange = () => { cfg[i.dataset.k] = i.checked; saveCfg(); });
   $('#ttKey').onchange = e => {
     const had = !!cfg.tomtom; cfg.tomtom = e.target.value.trim(); saveCfg();
     toast(cfg.tomtom ? 'Clave de TomTom guardada' : 'Clave quitada'); if (had !== !!cfg.tomtom || cfg.tomtom) applyStyle(true);
+    if (cfg.tomtom) loadTT(); else { ttInc = []; refreshPois(); }
   };
   $('#fuelSel').value = cfg.fuel;
   $('#fuelSel').onchange = e => { cfg.fuel = e.target.value; saveCfg(); refreshGas(); };
@@ -1035,6 +1051,67 @@ function settingsSheet() {
 $('#btnSettings').onclick = settingsSheet;
 
 
+
+
+/* ====================== Atascos e incidencias de TomTom (en directo) ====================== */
+let ttInc = [], ttAt = 0, ttBusy = false;
+const TT_CAT = { 0: 'incid', 1: 'accidente', 2: 'meteo', 3: 'peligro', 4: 'meteo', 5: 'meteo', 6: 'retencion', 7: 'carril', 8: 'corte',
+  9: 'obras', 10: 'meteo', 11: 'meteo', 14: 'averia' };
+const TT_FIELDS = '{incidents{type,geometry{type,coordinates},properties{id,iconCategory,magnitudeOfDelay,events{description,code,iconCategory},startTime,from,to,length,delay,roadNumbers}}}';
+/** Zonas a consultar: alrededor de ti y por delante en la ruta (TomTom admite zonas de hasta 10.000 km²) */
+function ttBoxes() {
+  const boxes = [], add = (c, dy, dx) => boxes.push([c[0] - dx, c[1] - dy, c[0] + dx, c[1] + dy]);
+  const r = (navigating && active) || (preview && routes[selIdx]) || null;
+  if (r) {
+    const from = navigating ? nav.along : 0;
+    let next = from;
+    for (let i = 0; i < r.coords.length && boxes.length < 5; i++) {
+      if (r.cum[i] >= next) { add(r.coords[i], 0.22, 0.3); next = r.cum[i] + 45000; }
+    }
+    add(r.coords[r.coords.length - 1], 0.15, 0.2);
+  } else if (me || map) {
+    add(me || map.getCenter().toArray(), 0.3, 0.4);
+  }
+  return boxes;
+}
+async function loadTT() {
+  if (!cfg.tomtom || !cfg.ttinc || ttBusy) return;
+  ttBusy = true; ttAt = Date.now();
+  const out = {};
+  try {
+    for (const b of ttBoxes()) {
+      const url = 'https://api.tomtom.com/traffic/services/5/incidentDetails?key=' + encodeURIComponent(cfg.tomtom) +
+        '&bbox=' + b.map(v => v.toFixed(4)).join(',') + '&fields=' + encodeURIComponent(TT_FIELDS) +
+        '&language=es-ES&timeValidityFilter=present';
+      let j;
+      try { j = await getJSON(url); } catch (e) { console.log('TomTom incidencias: ' + e.message); continue; }
+      for (const inc of (j && j.incidents) || []) {
+        const pr = inc.properties || {}, g = inc.geometry || {};
+        if (!pr.id || out[pr.id]) continue;
+        const cat = TT_CAT[pr.iconCategory] || 'incid';
+        let line = null, first;
+        if (g.type === 'LineString' && g.coordinates && g.coordinates.length) {
+          first = g.coordinates[0];
+          const step = Math.max(1, Math.floor(g.coordinates.length / 60));
+          line = g.coordinates.filter((c, i) => i % step === 0 || i === g.coordinates.length - 1);
+        } else if (g.type === 'Point') first = g.coordinates;
+        if (!first) continue;
+        const ev = (pr.events || [])[0] || {};
+        const road = (pr.roadNumbers || [])[0] || '';
+        const where = pr.from && pr.to ? pr.from + ' → ' + pr.to : (pr.from || '');
+        const it = { id: 't' + pr.id, lon: first[0], lat: first[1], cat, src: 'TomTom', road, delay: pr.delay || 0, len: pr.length || 0,
+          mag: pr.magnitudeOfDelay || 0, since: pr.startTime || '',
+          sub: [ev.description, road, where].filter(Boolean).join(' · ') };
+        if (line && line.length > 1) { it.line = line; const L = line[line.length - 1]; it.lon2 = L[0]; it.lat2 = L[1]; }
+        out[pr.id] = it;
+      }
+    }
+    ttInc = Object.values(out);
+    refreshPois();
+    if (navigating) drawRoutes();
+  } catch (e) { console.log('TomTom: ' + e.message); }
+  ttBusy = false;
+}
 
 /* ====================== Rutas alternativas durante el viaje ====================== */
 /** Calcula dónde se separa «alt» de la ruta activa. Devuelve null si es casi igual. */

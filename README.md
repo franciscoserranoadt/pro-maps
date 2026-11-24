@@ -10,6 +10,7 @@ Navegador gratuito estilo Waze + Google Maps para Android (móvil y pantallas de
 - Gasolineras con los precios oficiales del Ministerio (cerca o en tu ruta).
 - Límite de velocidad de la vía (OpenStreetMap) con aviso si lo pasas.
 - Abre las ubicaciones que te mandan por WhatsApp o enlaces de Google Maps.
+- Atascos e incidencias de TomTom en directo (con retraso en minutos).
 - Tráfico en directo y rutas que esquivan atascos con tu clave gratuita de TomTom (opcional).
 
 La APK se descarga desde **Releases → Pro Maps (última versión) → ProMaps.apk**.
