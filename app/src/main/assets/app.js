@@ -1517,14 +1517,11 @@ function addLookLayers() {
   }
   // Edificios en 3D
   const src = Object.keys(map.getStyle().sources || {}).find(k => map.getStyle().sources[k].type === 'vector');
-  const own3d = (map.getStyle().layers || []).filter(l => l.type === 'fill-extrusion').map(l => l.id);
-  own3d.forEach(id => map.setLayoutProperty(id, 'visibility', cfg.b3d ? 'visible' : 'none'));
-  if (!own3d.length && src) {
-    const dark = curStyle === 'dark';
-    map.addLayer({ id: 'b3d', type: 'fill-extrusion', source: src, 'source-layer': 'building', minzoom: 14.5,
-      layout: { visibility: cfg.b3d ? 'visible' : 'none' },
-      paint: { 'fill-extrusion-color': dark ? '#2a3448' : '#d9d3c7', 'fill-extrusion-opacity': 0.85,
-        'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 8], 'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0] } }, before);
+  // Se quitan los edificios 3D que trae el estilo (en el oscuro salen como losas negras) y se ponen los nuestros
+  (map.getStyle().layers || []).filter(l => l.type === 'fill-extrusion').forEach(l => map.removeLayer(l.id));
+  if (src) {
+    map.addLayer({ id: 'b3d', type: 'fill-extrusion', source: src, 'source-layer': 'building', minzoom: 15,
+      layout: { visibility: cfg.b3d ? 'visible' : 'none' }, paint: b3dPaint() }, before);
   }
   // Zonas de Bajas Emisiones
   map.addSource('zbe', { type: 'geojson', data: zbeGeo() });
@@ -1551,6 +1548,18 @@ function addLookLayers() {
     layout: { visibility: cfg.lamps ? 'visible' : 'none', 'icon-image': 'i_lamp', 'icon-size': ['interpolate', ['linear'], ['zoom'], 15.5, 0.45, 19, 1],
       'icon-allow-overlap': true, 'icon-pitch-alignment': 'viewport', 'icon-anchor': 'bottom' } });
   updateLampGlow();
+}
+/** Edificios con color según la altura y sombreado, para que se distingan paredes y tejados */
+function b3dPaint() {
+  const dark = curStyle === 'dark' || !!SAT[cfg.style];
+  const h = ['coalesce', ['get', 'render_height'], ['get', 'height'], 6];
+  return {
+    'fill-extrusion-color': ['interpolate', ['linear'], h, 0, dark ? '#46557a' : '#e4ddd0', 20, dark ? '#55668f' : '#d8cfbf', 60, dark ? '#6b7fab' : '#c9bea9'],
+    'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 15, 0, 15.6, h],
+    'fill-extrusion-base': ['interpolate', ['linear'], ['zoom'], 15, 0, 15.6, ['coalesce', ['get', 'render_min_height'], 0]],
+    'fill-extrusion-opacity': dark ? 0.78 : 0.7,
+    'fill-extrusion-vertical-gradient': true
+  };
 }
 function updateLampGlow() {
   if (map && map.getLayer('lampGlow')) map.setPaintProperty('lampGlow', 'circle-opacity', isNight() ? 0.55 : 0);
@@ -1593,8 +1602,7 @@ async function maybeLoadNature() {
 }
 function lookChanged(k) {
   if (!map) return;
-  if (k === 'b3d') { ['b3d'].concat((map.getStyle().layers || []).filter(l => l.type === 'fill-extrusion').map(l => l.id))
-    .forEach(id => map.getLayer(id) && map.setLayoutProperty(id, 'visibility', cfg.b3d ? 'visible' : 'none')); }
+  if (k === 'b3d' && map.getLayer('b3d')) map.setLayoutProperty('b3d', 'visibility', cfg.b3d ? 'visible' : 'none');
   if (k === 'trees' && map.getLayer('trees')) { map.setLayoutProperty('trees', 'visibility', cfg.trees ? 'visible' : 'none'); nature.c = null; nature.at = 0; }
   if (k === 'lamps' && map.getLayer('lamps')) { ['lamps', 'lampGlow'].forEach(id => map.setLayoutProperty(id, 'visibility', cfg.lamps ? 'visible' : 'none')); nature.c = null; nature.at = 0; }
   if ((k === 'trees' || k === 'lamps') && (cfg.trees || cfg.lamps)) { if (map.getZoom() < 15) toast('Acerca el mapa para ver ' + (k === 'trees' ? 'los árboles' : 'las farolas')); maybeLoadNature(); }
