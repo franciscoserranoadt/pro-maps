@@ -140,7 +140,7 @@ const OVQ = '[out:json][timeout:120];area["ISO3166-1"="ES"][admin_level=2]->.es;
   'rel["type"="enforcement"](area.es)->.r;.r out body;node(r.r);out skel;';
 
 async function loadRadars(force) {
-  if (!force && radars.length && Date.now() - radarsAt < 7 * 864e5) return;
+  if (!force && radars.length && Date.now() - radarsAt < 7 * 864e5 && store.get('radarsV', 1) === 2) return;
   for (const base of OVERPASS) {
     try {
       const j = await getJSON(base + encodeURIComponent(OVQ));
@@ -163,7 +163,7 @@ async function loadRadars(force) {
           if (m.type !== 'node' || !nodes[m.ref]) continue;
           const nd = nodes[m.ref];
           if (cat === 'tramo' && (m.role === 'from' || m.role === 'to')) {
-            out['t' + m.ref + m.role] = { id: 't' + m.ref + m.role, lon: nd.lon, lat: nd.lat, cat: 'tramo', max,
+            out['t' + el.id + m.ref + m.role] = { id: 't' + el.id + m.ref + m.role, lon: nd.lon, lat: nd.lat, cat: 'tramo', max, g: el.id,
               sub: m.role === 'from' ? 'Inicio de tramo' : 'Fin de tramo', fin: m.role === 'to' };
           } else if (m.role === 'device' || m.role === '') {
             const o = out[m.ref] || { id: 'o' + m.ref, lon: nd.lon, lat: nd.lat, sub: '' };
@@ -174,7 +174,7 @@ async function loadRadars(force) {
         }
       }
       radars = Object.values(out);
-      store.set('radars', radars); store.set('radarsAt', Date.now());
+      store.set('radars', radars); store.set('radarsAt', Date.now()); store.set('radarsV', 2);
       toast('📷 ' + radars.length + ' radares de España actualizados');
       refreshPois();
       return;
@@ -403,7 +403,7 @@ function refreshPois() {
       type: 'Feature', geometry: { type: 'LineString', coordinates: p.line || [[p.lon, p.lat], [p.lon2, p.lat2]] },
       properties: { color: p.cat === 'retencion' ? (p.mag >= 3 ? '#b71c1c' : p.mag === 2 ? '#e53935' : '#fb8c00') : CAT[p.cat].c, w: p.line ? 7 : 5 } })) });
   }
-  if (active) indexRoutePois(active);
+  if (active) { indexRoutePois(active); if (navigating) renderRouteBar(); }
   if (preview) routes.forEach(indexRoutePois);
 }
 function poiById(id) { return allPois.find(p => p.id === id); }
@@ -647,18 +647,20 @@ function indexRoutePois(r) {
   for (const p of allPois) {
     const pts = [[p.lon, p.lat]]; if (p.lon2 != null) pts.push([p.lon2, p.lat2]);
     if (p.line && p.line.length > 2) pts.push(p.line[Math.floor(p.line.length / 2)]);
-    let best = null;
+    let best = null, last = null;
     for (const pt of pts) {
       if (pt[0] < a - pad || pt[0] > c + pad || pt[1] < b - pad || pt[1] > d + pad) continue;
       const lim = IS_CAMERA(p.cat) ? 35 : 80;
+      let here = null;
       for (let i = 0; i < r.coords.length - 1; i++) {
         const A = r.coords[i], B = r.coords[i + 1];
         if (Math.abs(A[1] - pt[1]) > 0.02 && Math.abs(B[1] - pt[1]) > 0.02) continue;
         const pr = projSeg(pt, A, B);
-        if (pr.d < lim) { const at = r.cum[i] + pr.t * (r.cum[i + 1] - r.cum[i]); if (!best || at < best) best = at; }
+        if (pr.d < lim) { const at = r.cum[i] + pr.t * (r.cum[i + 1] - r.cum[i]); if (here == null || at < here) here = at; }
       }
+      if (here != null) { if (best == null || here < best) best = here; if (last == null || here > last) last = here; }
     }
-    if (best != null) out.push({ p, at: best });
+    if (best != null) out.push({ p, at: best, end: last });
   }
   out.sort((x, y) => x.at - y.at);
   r.pois = out;
@@ -771,7 +773,7 @@ function startNav() {
   Object.assign(nav, { idx: 0, step: 0, off: 0, lastReroute: Date.now(), said: {}, along: 0, arrived: false });
   navAlts = routes.filter((r, i) => i !== selIdx).map(r => markDivergence(r, 0)).filter(Boolean);
   routes = []; altAt = Date.now();
-  document.body.classList.add('nav'); $('#btnGas').classList.remove('hidden');
+  document.body.classList.add('nav'); $('#btnGas').classList.remove('hidden'); $('#btnSet2').classList.remove('hidden'); $('#routeBar').classList.remove('hidden');
   $('#searchBar').classList.add('hidden'); $('#banner').classList.remove('hidden'); $('#navBar').classList.remove('hidden');
   drawRoutes(); setFollow(true);
   if (cfg.tomtom && cfg.ttinc && Date.now() - ttAt > 60000) loadTT();
@@ -781,7 +783,7 @@ function startNav() {
 }
 function stopNav(silent) {
   navigating = false; active = null; dest = null; stops = []; navAlts = []; hideAltPrompt(); declinedAlts.length = 0; setDestMarker(null);
-  document.body.classList.remove('nav'); $('#btnGas').classList.add('hidden');
+  document.body.classList.remove('nav'); $('#btnGas').classList.add('hidden'); $('#btnSet2').classList.add('hidden'); $('#routeBar').classList.add('hidden');
   $('#searchBar').classList.remove('hidden'); $('#banner').classList.add('hidden'); $('#navBar').classList.add('hidden');
   drawRoutes(); setFollow(true);
   if (!silent && N) N.stopSpeak();
@@ -906,6 +908,7 @@ function checkAlerts() {
   for (const c of cands) {
     const a = alerted[c.p.id];
     if (a && Date.now() - a.t < 15 * 60000) continue;
+    if (c.p.cat === 'tramo' && c.p.fin && tramo) { alerted[c.p.id] = { t: Date.now() }; continue; }
     alerted[c.p.id] = { t: Date.now() };
     const n = CAT[c.p.cat].n;
     let t;
@@ -949,7 +952,8 @@ window.onGps = (lat, lon, spd, brg, acc, isGps) => {
   if (!map) return;
   meMarker.setLngLat(pos); meMarker.setRotation(heading);
   $('#spdVal').textContent = Math.round(speedMs * 3.6);
-  if (navigating) navUpdate();
+  if (navigating) { navUpdate(); renderRouteBar(); }
+  updateTramo();
   checkAlerts();
   if (firstFix && !preview) map.jumpTo({ center: pos, zoom: 15.5 });
   if (firstFix && pendingGo) goTo(pendingGo, true);
@@ -1049,6 +1053,7 @@ function settingsSheet() {
   $('#bTest').onclick = () => say('Radar fijo a 500 metros. Límite 100.', true);
 }
 $('#btnSettings').onclick = settingsSheet;
+$('#btnSet2').onclick = settingsSheet;
 
 
 
@@ -1115,6 +1120,90 @@ async function loadTT() {
     }
   } catch (e) { console.log('TomTom: ' + e.message); }
   ttBusy = false;
+}
+
+
+/* ====================== Barra de la ruta (se consume al avanzar) ====================== */
+function renderRouteBar() {
+  const el = $('#routeBar'); if (!navigating || !active) return;
+  const r = active, T = r.total || 1, pct = v => Math.max(0, Math.min(100, v / T * 100)).toFixed(2) + '%';
+  let h = '<div class="rbTrack"></div>';
+  // atascos y retenciones como tramos de color
+  for (const o of r.pois || []) {
+    if ((o.p.cat === 'retencion' || o.p.cat === 'corte') && o.end != null && o.end - o.at > 30 && o.end > nav.along) {
+      const col = o.p.cat === 'corte' ? '#7f0000' : o.p.mag >= 3 ? '#b71c1c' : o.p.mag === 2 ? '#e53935' : '#fb8c00';
+      h += '<div class="rbJam" style="left:' + pct(Math.max(o.at, nav.along)) + ';width:' + pct(o.end - Math.max(o.at, nav.along)) + ';background:' + col + '"></div>';
+    }
+  }
+  h += '<div class="rbDone" style="width:' + pct(nav.along) + '"></div>';
+  // iconos de lo que queda por delante (radares e incidencias)
+  let lastX = -1e9;
+  const ahead = (r.pois || []).filter(o => o.at > nav.along + 10 && !(o.p.cat === 'tramo' && o.p.fin));
+  for (const o of ahead) {
+    const x = o.at / T * 100;
+    if (x - lastX < 2.2) continue; // que no se monten unos sobre otros
+    lastX = x;
+    h += '<div class="rbIco" style="left:' + x.toFixed(2) + '%;background:' + CAT[o.p.cat].c + '">' + CAT[o.p.cat].e + '</div>';
+  }
+  for (const st of r.steps) if (st.kind === 'stop' && st.at > nav.along) h += '<div class="rbIco" style="left:' + pct(st.at) + ';background:#fff">📍</div>';
+  h += '<div class="rbEnd">🏁</div><div class="rbMe" style="left:' + pct(nav.along) + '"></div>';
+  el.innerHTML = h;
+}
+
+/* ====================== Tramo de velocidad controlada ====================== */
+let tramo = null;
+function updateTramo() {
+  const box = $('#tramo');
+  const hide = () => { box.classList.add('hidden'); document.body.classList.remove('tramo'); };
+  if (!cfg.radars || !me) { tramo = null; return hide(); }
+  const now = Date.now();
+  if (!tramo) {
+    if (navigating && active && active.pois) {
+      for (const o of active.pois) {
+        if (o.p.cat !== 'tramo' || o.p.fin || o.p.g == null) continue;
+        if (o.at <= nav.along + 5 && nav.along - o.at < 300) {
+          const e = active.pois.find(x => x.p.cat === 'tramo' && x.p.fin && x.p.g === o.p.g && x.at > o.at);
+          if (e) { tramo = { g: o.p.g, max: o.p.max || e.p.max || 0, route: true, endAt: e.at, end: [e.p.lon, e.p.lat], len: e.at - o.at }; break; }
+        }
+      }
+    }
+    if (!tramo && speedMs > 5) {
+      for (const t of radars) {
+        if (t.cat !== 'tramo' || t.fin || t.g == null || Math.abs(t.lat - me[1]) > 0.001) continue;
+        if (dist(me, [t.lon, t.lat]) < 45) {
+          const e = radars.find(x => x.g === t.g && x.fin);
+          if (e) { tramo = { g: t.g, max: t.max || e.max || 0, route: false, end: [e.lon, e.lat], len: Math.max(200, dist([t.lon, t.lat], [e.lon, e.lat])) }; break; }
+        }
+      }
+    }
+    if (!tramo) return hide();
+    Object.assign(tramo, { t0: now, trav: 0, last: me, minEnd: 1e9 });
+    if (!tramo.max) tramo.max = roadLimit || 0;
+  } else {
+    const d = dist(tramo.last, me); if (d < 300) tramo.trav += d; tramo.last = me;
+  }
+  const rest = tramo.route && navigating && active ? Math.max(0, tramo.endAt - nav.along) : dist(me, tramo.end);
+  tramo.minEnd = Math.min(tramo.minEnd, rest);
+  const secs = (now - tramo.t0) / 1000;
+  const avg = secs > 8 ? tramo.trav / secs * 3.6 : speedMs * 3.6;
+  const finished = rest <= 25 || (!tramo.route && rest > tramo.minEnd + 150) || secs > 3600 || (tramo.route && !navigating);
+  if (finished) {
+    if (secs > 20) say('Fin de tramo. Tu velocidad media ha sido de ' + Math.round(avg) + ' kilómetros por hora');
+    tramo = null; return hide();
+  }
+  const frac = Math.max(0, Math.min(1, rest / tramo.len));
+  const lim = tramo.max;
+  box.classList.remove('hidden'); document.body.classList.add('tramo');
+  $('#tTitle').textContent = 'Tramo controlado' + (lim ? ' a ' + lim : '');
+  $('#tSub').textContent = 'Quedan ' + fmtDist(rest) + (lim && avg > lim ? ' · baja un poco' : '');
+  $('#tAvg').textContent = Math.round(avg);
+  $('#tLim').textContent = lim || '?';
+  $('#tFill').style.width = (frac * 100).toFixed(1) + '%';
+  box.classList.toggle('over', !!lim && avg > lim + 2);
+  box.classList.toggle('warn', !!lim && avg > lim - 3 && avg <= lim + 2);
+  if (lim && avg > lim + 2 && secs > 15 && (!tramo.warned || now - tramo.warned > 30000)) {
+    tramo.warned = now; beep(2); say('Tu media en el tramo es de ' + Math.round(avg) + '. El límite es ' + lim);
+  }
 }
 
 /* ====================== Rutas alternativas durante el viaje ====================== */

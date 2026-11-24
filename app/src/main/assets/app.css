@@ -152,3 +152,38 @@ input.inl{width:100%;background:var(--panel2);color:var(--txt);border:1px solid 
 .apBtns #apYes{background:#7c3aed}
 .apBar{height:5px;background:#4c1d95;border-radius:3px;margin-top:10px;overflow:hidden}
 #apFill{height:100%;width:100%;background:#b39dfa}
+
+/* Barra de ruta */
+#routeBar{position:absolute;z-index:6;left:16px;right:16px;bottom:calc(98px + var(--safe-b));height:34px;pointer-events:none}
+.rbTrack,.rbDone,.rbJam{position:absolute;top:14px;height:9px;border-radius:5px}
+.rbTrack{left:0;right:0;background:#2f8cff;box-shadow:0 0 0 2px rgba(0,0,0,.45)}
+.rbJam{border-radius:2px}
+.rbDone{left:0;background:#56637a;border-radius:5px 0 0 5px}
+.rbIco{position:absolute;top:0;transform:translateX(-50%);width:22px;height:22px;border-radius:50%;border:2px solid #fff;
+  display:flex;align-items:center;justify-content:center;font-size:12px;box-shadow:0 1px 4px rgba(0,0,0,.5)}
+.rbMe{position:absolute;top:9px;width:19px;height:19px;border-radius:50%;background:#33ccff;border:3px solid #fff;transform:translateX(-50%);box-shadow:0 1px 5px rgba(0,0,0,.6)}
+.rbEnd{position:absolute;right:-8px;top:4px;font-size:18px}
+body.nav #speed{bottom:calc(140px + var(--safe-b))}
+body.nav #limit{bottom:calc(144px + var(--safe-b))}
+body.nav #fabs{bottom:calc(140px + var(--safe-b))}
+body.nav .pill{bottom:calc(146px + var(--safe-b))}
+body.nav #altPrompt{bottom:calc(136px + var(--safe-b))}
+/* Tramo */
+#tramo{position:absolute;z-index:7;left:8px;right:8px;max-width:560px;top:calc(124px + var(--safe-t));background:#fff;color:#111;
+  border-radius:18px;padding:10px 14px 12px;box-shadow:0 6px 22px rgba(0,0,0,.55);border:4px solid #2e7d32}
+#tramo.warn{border-color:#fb8c00}
+#tramo.over{border-color:#e53935;background:#ffebee}
+.tRow{display:flex;align-items:center;gap:10px}
+.tIco{font-size:30px}
+.tTxt{flex:1;min-width:0}
+#tTitle{font-size:17px;font-weight:800}
+#tSub{font-size:14px;opacity:.75}
+.tAvg{text-align:center}
+#tAvg{font-size:30px;font-weight:900;line-height:1}
+.tU{font-size:11px;opacity:.7}
+.tLim{width:50px;height:50px;border-radius:50%;border:6px solid #e53935;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;background:#fff}
+.tBar{height:10px;background:#e0e0e0;border-radius:5px;margin-top:9px;overflow:hidden}
+#tFill{height:100%;width:100%;background:#2e7d32;border-radius:5px;transition:width .9s linear}
+#tramo.warn #tFill{background:#fb8c00}
+#tramo.over #tFill{background:#e53935}
+body.tramo #alert{top:calc(256px + var(--safe-t))}

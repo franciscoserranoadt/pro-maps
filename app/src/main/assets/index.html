@@ -45,12 +45,20 @@
   <div id="aLimit" class="hidden">100</div>
 </div>
 
+<!-- Tramo de velocidad controlada -->
+<div id="tramo" class="hidden">
+  <div class="tRow"><div class="tIco">⏱️</div><div class="tTxt"><div id="tTitle">Tramo controlado</div><div id="tSub">quedan 3 km</div></div>
+    <div class="tAvg"><div id="tAvg">0</div><div class="tU">media km/h</div></div><div id="tLim" class="tLim">100</div></div>
+  <div class="tBar"><div id="tFill"></div></div>
+</div>
+
 <!-- Velocímetro -->
 <div id="speed"><div id="spdVal">0</div><div class="spdU">km/h</div></div>
 <div id="limit" class="hidden">50</div>
 
 <!-- Botones laterales -->
 <div id="fabs">
+  <button id="btnSet2" class="fab hidden" title="Ajustes">⚙️</button>
   <button id="btnGas" class="fab hidden" title="Gasolineras">⛽</button>
   <button id="btnTraffic" class="fab" title="Tráfico">🚦</button>
   <button id="btnLayers" class="fab" title="Capas">🗺️</button>
@@ -64,6 +72,9 @@
   <div class="apBtns"><button id="apNo" class="btn alt">No, gracias</button><button id="apYes" class="btn">Cambiar</button></div>
   <div class="apBar"><div id="apFill"></div></div>
 </div>
+
+<!-- Barra de la ruta con incidencias -->
+<div id="routeBar" class="hidden"></div>
 
 <!-- Barra inferior navegando -->
 <div id="navBar" class="hidden">
