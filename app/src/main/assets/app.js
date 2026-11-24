@@ -339,6 +339,7 @@ async function boot() {
   map.on('style.load', onStyleLoad);
   map.on('error', e => console.log('map error ' + (e && e.error && e.error.message)));
   map.on('dragstart', () => setFollow(false));
+  map.on('moveend', () => { if (cfg.trees || cfg.lamps) maybeLoadNature(); });
   map.on('click', 'pois', e => { const f = e.features && e.features[0]; if (f) showPoi(f); });
   map.on('click', 'routeAltHit', e => {
     const f = e.features && e.features[0]; if (!f) return;
@@ -1656,13 +1657,13 @@ const natureGeo = () => ({ type: 'FeatureCollection', features:
   nature.t.map(p => ({ type: 'Feature', geometry: { type: 'Point', coordinates: p }, properties: { k: 't' } })).concat(
   nature.l.map(p => ({ type: 'Feature', geometry: { type: 'Point', coordinates: p }, properties: { k: 'l' } }))) });
 async function maybeLoadNature() {
-  if (nature.busy || map.getZoom() < 15 || Date.now() - nature.at < 20000) return;
-  const c = me || map.getCenter().toArray();
+  if (nature.busy || map.getZoom() < 15 || Date.now() - nature.at < 8000) return;
+  const c = (!follow || !me) ? map.getCenter().toArray() : me;
   if (nature.c && dist(nature.c, c) < 350) return;
   nature.busy = true; nature.at = Date.now();
   const R = 650, ll = c[1].toFixed(5) + ',' + c[0].toFixed(5);
   const q = '[out:json][timeout:20];(' + (cfg.trees ? 'node(around:' + R + ',' + ll + ')["natural"="tree"];' : '') +
-    (cfg.lamps ? 'node(around:' + R + ',' + ll + ')["highway"="street_lamp"];' : '') + ');out tags qt 4000;';
+    (cfg.lamps ? 'node(around:' + R + ',' + ll + ')["highway"="street_lamp"];' : '') + ');out body qt 4000;';
   for (const base of OVERPASS) {
     try {
       const j = await getJSON(base + encodeURIComponent(q));
@@ -2155,7 +2156,7 @@ async function loadParkings(d) {
   if (!d) return;
   if (parkingsFor && Math.abs(parkingsFor.lat - d.lat) < 1e-4 && Math.abs(parkingsFor.lon - d.lon) < 1e-4) return;
   parkingsFor = d;
-  const q = '[out:json][timeout:20];nwr(around:800,' + d.lat.toFixed(5) + ',' + d.lon.toFixed(5) + ')["amenity"="parking"]["access"!~"private|customers|no|permissive"];out center tags 60;';
+  const q = '[out:json][timeout:20];nwr(around:800,' + d.lat.toFixed(5) + ',' + d.lon.toFixed(5) + ')["amenity"="parking"]["access"!~"private|customers|no|permissive"];out center 60;';
   for (const base of OVERPASS) {
     try {
       const j = await getJSON(base + encodeURIComponent(q));
@@ -2352,7 +2353,7 @@ function fatigueTick(now) {
 async function restAreasSheet() {
   if (!me) return;
   openSheet('<div class="sTitle">😴 Dónde parar</div><div class="muted">Buscando áreas de descanso y de servicio cerca…</div>');
-  const q = '[out:json][timeout:25];(nwr(around:25000,' + me[1].toFixed(4) + ',' + me[0].toFixed(4) + ')["highway"~"^(rest_area|services)$"];);out center tags 40;';
+  const q = '[out:json][timeout:25];(nwr(around:25000,' + me[1].toFixed(4) + ',' + me[0].toFixed(4) + ')["highway"~"^(rest_area|services)$"];);out center 40;';
   let list = [];
   for (const base of OVERPASS) {
     try {
@@ -2399,7 +2400,7 @@ async function loadHazards(pos) {
   osmHazAt = { c: pos, t: Date.now() };
   const R = 5000, ll = pos[1].toFixed(4) + ',' + pos[0].toFixed(4);
   const q = '[out:json][timeout:25];(node(around:' + R + ',' + ll + ')["railway"="level_crossing"];node(around:' + R + ',' + ll + ')["hazard"];' +
-    'nwr(around:' + R + ',' + ll + ')["amenity"="school"];);out center tags 400;';
+    'nwr(around:' + R + ',' + ll + ')["amenity"="school"];);out center 400;';
   for (const base of OVERPASS) {
     try {
       const j = await getJSON(base + encodeURIComponent(q));
