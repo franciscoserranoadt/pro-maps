@@ -351,7 +351,7 @@ async function boot() {
 
   const el = document.createElement('div'); el.className = 'me'; el.id = 'meIcon';
   el.innerHTML = carSvg(cfg.car, cfg.carColor);
-  meMarker = new maplibregl.Marker({ element: el, rotationAlignment: 'map', pitchAlignment: 'map' }).setLngLat(start).addTo(map);
+  meMarker = new maplibregl.Marker({ element: el, rotationAlignment: 'map', pitchAlignment: 'viewport' }).setLngLat(start).addTo(map);
 
   map.once('load', () => {
     drawPark(); applyCar();
@@ -1520,7 +1520,9 @@ function addLookLayers() {
   // Se quitan los edificios 3D que trae el estilo (en el oscuro salen como losas negras) y se ponen los nuestros
   (map.getStyle().layers || []).filter(l => l.type === 'fill-extrusion').forEach(l => map.removeLayer(l.id));
   if (src) {
+    // hide_3d: contornos de edificios que ya vienen por partes (si se levantan los dos, salen cajas huecas)
     map.addLayer({ id: 'b3d', type: 'fill-extrusion', source: src, 'source-layer': 'building', minzoom: 15,
+      filter: ['!', ['to-boolean', ['get', 'hide_3d']]],
       layout: { visibility: cfg.b3d ? 'visible' : 'none' }, paint: b3dPaint() }, before);
   }
   // Zonas de Bajas Emisiones
@@ -1557,7 +1559,7 @@ function b3dPaint() {
     'fill-extrusion-color': ['interpolate', ['linear'], h, 0, dark ? '#46557a' : '#e4ddd0', 20, dark ? '#55668f' : '#d8cfbf', 60, dark ? '#6b7fab' : '#c9bea9'],
     'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 15, 0, 15.6, h],
     'fill-extrusion-base': ['interpolate', ['linear'], ['zoom'], 15, 0, 15.6, ['coalesce', ['get', 'render_min_height'], 0]],
-    'fill-extrusion-opacity': dark ? 0.78 : 0.7,
+    'fill-extrusion-opacity': 1,
     'fill-extrusion-vertical-gradient': true
   };
 }
