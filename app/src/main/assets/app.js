@@ -1536,6 +1536,10 @@ function addLookLayers() {
     map.addLayer({ id: 'b3d', type: 'fill-extrusion', source: src, 'source-layer': 'building', minzoom: 15,
       filter: ['!', ['to-boolean', ['get', 'hide_3d']]],
       layout: { visibility: cfg.b3d ? 'visible' : 'none' }, paint: b3dPaint() }, before3d);
+    // Todos los nombres del estilo que quedaban por debajo de los edificios se suben por encima (en su mismo orden)
+    const ls = map.getStyle().layers || [], bi = ls.findIndex(l => l.id === 'b3d');
+    ls.slice(0, bi).filter(l => l.type === 'symbol').forEach(l => { try { before3d ? map.moveLayer(l.id, before3d) : map.moveLayer(l.id); } catch (e) { } });
+    addPoiLabels(src);
   }
   // Zonas de Bajas Emisiones
   map.addSource('zbe', { type: 'geojson', data: zbeGeo() });
@@ -1562,6 +1566,30 @@ function addLookLayers() {
     layout: { visibility: cfg.lamps ? 'visible' : 'none', 'icon-image': 'i_lamp', 'icon-size': ['interpolate', ['linear'], ['zoom'], 15.5, 0.45, 19, 1],
       'icon-allow-overlap': true, 'icon-pitch-alignment': 'viewport', 'icon-anchor': 'bottom' } });
   updateLampGlow();
+}
+/* Nombres de bares, tiendas y locales: el estilo oscuro no los trae, así que se añaden */
+const POI_ICON = { cafe: '☕', bar: '🍺', beer: '🍺', restaurant: '🍴', fast_food: '🍔', ice_cream: '🍦', bakery: '🥖', shop: '🛍️', grocery: '🛒',
+  supermarket: '🛒', clothing_store: '👕', pharmacy: '💊', hospital: '🏥', doctors: '🩺', bank: '🏦', fuel: '⛽', parking: '🅿️', school: '🏫',
+  college: '🎓', library: '📚', cinema: '🎬', theatre: '🎭', museum: '🏛️', hotel: '🏨', lodging: '🏨', place_of_worship: '⛪', police: '👮',
+  post: '✉️', town_hall: '🏛️', park: '🌳', playground: '🛝', sports_centre: '🏟️', pitch: '⚽', swimming: '🏊', hairdresser: '💇', car: '🚗',
+  car_repair: '🔧', bus: '🚌', railway: '🚆', subway: '🚇', attraction: '📍' };
+function addPoiLabels(src) {
+  const st = map.getStyle();
+  const hasPoi = (st.layers || []).some(l => l.type === 'symbol' && l['source-layer'] === 'poi' && (!l.layout || l.layout.visibility !== 'none'));
+  if (hasPoi) return;
+  for (const k in POI_ICON) if (!map.hasImage('poi_' + k)) map.addImage('poi_' + k, makeGlyph(POI_ICON[k], 36), { pixelRatio: 2 });
+  if (!map.hasImage('poi_dot')) { const S = 16, c = document.createElement('canvas'); c.width = c.height = S; const x = c.getContext('2d');
+    x.fillStyle = '#9fb0c8'; x.beginPath(); x.arc(S / 2, S / 2, S / 2 - 2, 0, Math.PI * 2); x.fill(); map.addImage('poi_dot', x.getImageData(0, 0, S, S), { pixelRatio: 2 }); }
+  const cls = ['coalesce', ['get', 'subclass'], ''], klass = ['coalesce', ['get', 'class'], ''];
+  const iconExpr = ['case'];
+  for (const k in POI_ICON) { iconExpr.push(['any', ['==', cls, k], ['==', klass, k]], 'poi_' + k); }
+  iconExpr.push('poi_dot');
+  map.addLayer({ id: 'poiNames', type: 'symbol', source: src, 'source-layer': 'poi', minzoom: 15.5,
+    filter: ['has', 'name'],
+    layout: { 'icon-image': iconExpr, 'icon-size': 0.9, 'text-field': ['coalesce', ['get', 'name:es'], ['get', 'name']], 'text-font': ['Noto Sans Regular'],
+      'text-size': 12, 'text-anchor': 'left', 'text-offset': [0.9, 0], 'text-max-width': 9, 'symbol-sort-key': ['coalesce', ['get', 'rank'], 99],
+      'text-optional': true },
+    paint: { 'text-color': '#dfe6f3', 'text-halo-color': '#1b2333', 'text-halo-width': 1.5 } });
 }
 /** Edificios con color según la altura y sombreado, para que se distingan paredes y tejados */
 function b3dPaint() {
