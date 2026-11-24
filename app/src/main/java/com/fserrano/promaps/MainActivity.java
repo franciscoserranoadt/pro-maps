@@ -55,6 +55,7 @@ public class MainActivity extends Activity implements LocationListener {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService pool = Executors.newFixedThreadPool(4);
     private String pendingShare = null;
+    private android.webkit.PermissionRequest pendingCam = null;
     private TileCache tiles;
     private android.speech.SpeechRecognizer recognizer;
     private final ExecutorService prefetchPool = Executors.newFixedThreadPool(4);
@@ -100,6 +101,19 @@ public class MainActivity extends Activity implements LocationListener {
         });
         pool.execute(() -> tiles.trim());
         web.setWebChromeClient(new WebChromeClient() {
+            @Override public void onPermissionRequest(final android.webkit.PermissionRequest req) {
+                handler.post(() -> {
+                    boolean wantsCam = false;
+                    for (String r : req.getResources()) if (android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r)) wantsCam = true;
+                    if (!wantsCam) { req.deny(); return; }
+                    if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                        pendingCam = req;
+                        requestPermissions(new String[]{Manifest.permission.CAMERA}, 3);
+                    } else {
+                        req.grant(new String[]{android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE});
+                    }
+                });
+            }
             @Override public boolean onConsoleMessage(ConsoleMessage m) {
                 android.util.Log.d("Pro Maps", m.message() + " @" + m.lineNumber());
                 return true;
@@ -162,6 +176,15 @@ public class MainActivity extends Activity implements LocationListener {
     @Override
     public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
         super.onRequestPermissionsResult(code, perms, res);
+        if (code == 3) {
+            if (pendingCam != null) {
+                if (res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED)
+                    pendingCam.grant(new String[]{android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE});
+                else pendingCam.deny();
+                pendingCam = null;
+            }
+            return;
+        }
         if (code == 2) {
             if (res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED) startListening();
             else voiceJs("onVoiceError", "Sin permiso de micrófono no puedo escucharte");
@@ -291,6 +314,41 @@ public class MainActivity extends Activity implements LocationListener {
                     reply(id, false, String.valueOf(e.getMessage()));
                 }
             });
+        }
+
+        /** Diagnóstico: cámaras que ve Android y aparatos de vídeo conectados por USB */
+        @JavascriptInterface
+        public String cameraInfo() {
+            JSONObject o = new JSONObject();
+            try {
+                JSONArray cams = new JSONArray();
+                android.hardware.camera2.CameraManager cm = (android.hardware.camera2.CameraManager) getSystemService(Context.CAMERA_SERVICE);
+                if (cm != null) for (String id : cm.getCameraIdList()) {
+                    JSONObject c = new JSONObject();
+                    c.put("id", id);
+                    Integer f = cm.getCameraCharacteristics(id).get(android.hardware.camera2.CameraCharacteristics.LENS_FACING);
+                    c.put("facing", f == null ? "?" : f == 0 ? "frontal" : f == 1 ? "trasera" : "externa (USB)");
+                    cams.put(c);
+                }
+                o.put("cameras", cams);
+            } catch (Exception e) { try { o.put("camErr", String.valueOf(e.getMessage())); } catch (Exception ignored) { } }
+            try {
+                JSONArray usb = new JSONArray();
+                android.hardware.usb.UsbManager um = (android.hardware.usb.UsbManager) getSystemService(Context.USB_SERVICE);
+                if (um != null) for (android.hardware.usb.UsbDevice d : um.getDeviceList().values()) {
+                    boolean video = d.getDeviceClass() == 14 || d.getDeviceClass() == 239;
+                    for (int i = 0; i < d.getInterfaceCount(); i++) if (d.getInterface(i).getInterfaceClass() == 14) video = true;
+                    JSONObject u = new JSONObject();
+                    u.put("name", (Build.VERSION.SDK_INT >= 21 && d.getProductName() != null) ? d.getProductName() : d.getDeviceName());
+                    u.put("maker", Build.VERSION.SDK_INT >= 21 && d.getManufacturerName() != null ? d.getManufacturerName() : "");
+                    u.put("ids", String.format("%04x:%04x", d.getVendorId(), d.getProductId()));
+                    u.put("video", video);
+                    usb.put(u);
+                }
+                o.put("usb", usb);
+            } catch (Exception e) { try { o.put("usbErr", String.valueOf(e.getMessage())); } catch (Exception ignored) { } }
+            try { o.put("model", Build.MANUFACTURER + " " + Build.MODEL + " · Android " + Build.VERSION.RELEASE); } catch (Exception ignored) { }
+            return o.toString();
         }
 
         @JavascriptInterface

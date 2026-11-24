@@ -1332,6 +1332,7 @@ function settingsPage(k) {
     tg('offlineRoute', '📥 Guardar el mapa de cada ruta', 'Al empezar una ruta se descarga el mapa del camino') +
     btn('bZone', '📥 Descargar el mapa de mi zona (30 km)') + btn('bCache', '🗂️ Mapa guardado en el móvil');
   if (k === 'app') h +=
+    btn('bCam', '📷 Probar la dash cam') +
     btn('bUpd', '🔄 Buscar actualización (tienes la v' + esc(N ? N.version() : 'web') + ')') +
     btn('bRad', '📷 Actualizar los radares ahora') +
     '<div class="muted" style="margin-top:12px">Mapa © OpenStreetMap y OpenFreeMap · Rutas Valhalla (FOSSGIS) · Incidencias DGT (datos abiertos) · Búsqueda Photon y CartoCiudad (IGN) · ' +
@@ -1360,6 +1361,7 @@ function settingsPage(k) {
   // Botones
   const on = (id, f) => { const el = document.getElementById(id); if (el) el.onclick = () => { if (/^(bCar|bSync|bCache)$/.test(id)) backTo = () => settingsPage(k); f(); }; };
   on('bTest', () => say('Radar fijo a 500 metros. Límite 100.', true));
+  on('bCam', camTest);
   on('bCar', carSheet);
   on('bSync', syncSheet);
   on('bZone', () => { closeSheet(); prefetchZone(); });
@@ -2614,6 +2616,53 @@ function carShadow(L) {
   svg.style.filter = 'drop-shadow(' + dx + 'px ' + dy + 'px 3px rgba(0,0,0,' + a + '))';
 }
 
+
+/* ====================== Prueba de la dash cam ====================== */
+let camStream = null;
+async function camTest() {
+  backTo = () => settingsPage('app');
+  let info = {};
+  try { info = N && N.cameraInfo ? JSON.parse(N.cameraInfo()) : {}; } catch (e) { }
+  let h = '<div class="sTitle">📷 Probar la dash cam</div><div class="sSub">Mira si Pro Maps puede ver la imagen de la cámara. Pruébalo también con la app de la dash cam grabando.</div>';
+  h += '<div class="sec">Lo que ve el sistema</div><div class="muted">' + esc(info.model || '') + '</div>';
+  const cams = info.cameras || [];
+  h += '<div class="row"><div class="ri">📸</div><div class="rt"><div class="r1">Cámaras de Android: ' + cams.length + '</div><div class="r2">' +
+    esc(cams.map(c => 'nº ' + c.id + ' (' + c.facing + ')').join(' · ') || 'ninguna') + '</div></div></div>';
+  const usb = info.usb || [];
+  const vids = usb.filter(u => u.video);
+  h += '<div class="row"><div class="ri">🔌</div><div class="rt"><div class="r1">Aparatos USB: ' + usb.length + (vids.length ? ' · de vídeo: ' + vids.length : '') + '</div><div class="r2" style="white-space:normal">' +
+    esc(usb.map(u => (u.video ? '🎥 ' : '') + (u.maker ? u.maker + ' ' : '') + u.name + ' [' + u.ids + ']').join(' · ') || 'ninguno') + '</div></div></div>';
+  h += '<div class="sec">Cámaras que puede abrir Pro Maps</div><div id="camList" class="muted">Pidiendo permiso para usar la cámara…</div>';
+  openSheet(h);
+  try {
+    const s0 = await navigator.mediaDevices.getUserMedia({ video: true });
+    s0.getTracks().forEach(t => t.stop());
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+    const el = document.getElementById('camList'); if (!el) return;
+    if (!devs.length) { el.textContent = 'Ninguna. La dash cam solo la puede usar la app de Junsun.'; return; }
+    el.innerHTML = devs.map((d, i) => '<div class="row" data-cam="' + i + '"><div class="ri">🎥</div><div class="rt"><div class="r1">' + esc(d.label || ('Cámara ' + (i + 1))) +
+      '</div><div class="r2">Toca para ver la imagen</div></div><div class="rr chev">›</div></div>').join('');
+    el.classList.remove('muted');
+    el.querySelectorAll('[data-cam]').forEach(r => r.onclick = () => camOpen(devs[+r.dataset.cam]));
+  } catch (e) {
+    const el = document.getElementById('camList');
+    if (el) el.textContent = 'No se pudo abrir ninguna cámara (' + (e.name || '') + ': ' + (e.message || e) + '). ' +
+      (e.name === 'NotAllowedError' ? 'Falta el permiso de cámara: Ajustes de Android → Apps → Pro Maps → Permisos.' :
+        e.name === 'NotReadableError' ? 'La cámara está ocupada: seguramente la está usando la app de la dash cam.' : '');
+  }
+}
+async function camOpen(dev) {
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: dev.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } } });
+    const v = $('#camVideo'); v.srcObject = camStream;
+    $('#camView').classList.remove('hidden');
+    v.onloadedmetadata = () => { $('#camInfo').textContent = '🎥 ' + (dev.label || 'Cámara') + ' · ' + v.videoWidth + '×' + v.videoHeight + ' · ¡Funciona! Mándame una captura'; };
+  } catch (e) {
+    toast('No se pudo abrir esa cámara: ' + (e.name === 'NotReadableError' ? 'está ocupada por otra app (la de la dash cam)' : (e.message || e.name)), 6000);
+  }
+}
+$('#camClose').onclick = () => { if (camStream) camStream.getTracks().forEach(t => t.stop()); camStream = null; $('#camView').classList.add('hidden'); };
+
 /* ====================== Rutas alternativas durante el viaje ====================== */
 /** Calcula dónde se separa «alt» de la ruta activa. Devuelve null si es casi igual. */
 function markDivergence(alt, alongNow) {
@@ -3065,6 +3114,7 @@ window.onShared = onShared;
 
 /* ====================== Botón atrás de Android ====================== */
 window.onBack = () => {
+  if (!$('#camView').classList.contains('hidden')) { $('#camClose').onclick(); return true; }
   if (altPromptFor) { declineAlt(false); return true; }
   if (!$('#notice').classList.contains('hidden')) { hideNotice(); return true; }
   if (sheetOpen() && document.getElementById('sheetBack')) { document.getElementById('sheetBack').click(); return true; }
