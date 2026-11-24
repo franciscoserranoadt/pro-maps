@@ -210,6 +210,40 @@ public class MainActivity extends Activity implements LocationListener {
             });
         }
 
+        /** Envía datos (POST) — se usa para pasar el aparcamiento de la pantalla del coche al móvil */
+        @JavascriptInterface
+        public void post(String id, String url, String body, String headersJson) {
+            pool.execute(() -> {
+                try {
+                    Request.Builder b = new Request.Builder().url(url)
+                            .post(okhttp3.RequestBody.create(body == null ? "" : body, okhttp3.MediaType.parse("text/plain; charset=utf-8")));
+                    if (headersJson != null && !headersJson.isEmpty()) {
+                        JSONObject h = new JSONObject(headersJson);
+                        java.util.Iterator<String> it = h.keys();
+                        while (it.hasNext()) { String k = it.next(); b.header(k, h.optString(k)); }
+                    }
+                    try (Response r = HTTP.newCall(b.build()).execute()) {
+                        String txt = r.body() != null ? r.body().string() : "";
+                        reply(id, r.isSuccessful(), r.isSuccessful() ? txt : ("HTTP " + r.code()));
+                    }
+                } catch (Exception e) {
+                    reply(id, false, String.valueOf(e.getMessage()));
+                }
+            });
+        }
+
+        /** Compartir texto (WhatsApp si está instalado; si no, el menú de Android) */
+        @JavascriptInterface
+        public void share(String text, boolean whatsapp) {
+            handler.post(() -> {
+                Intent i = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text);
+                if (whatsapp) {
+                    try { startActivity(new Intent(i).setPackage("com.whatsapp")); return; } catch (Exception ignored) { }
+                }
+                try { startActivity(Intent.createChooser(i, "Compartir con…")); } catch (Exception ignored) { }
+            });
+        }
+
         @JavascriptInterface
         public void dgt(String id) {
             pool.execute(() -> {
@@ -388,6 +422,12 @@ public class MainActivity extends Activity implements LocationListener {
     }
 
     // ---------- Ciclo de vida ----------
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (web != null) web.evaluateJavascript("window.onResume&&window.onResume()", null);
+    }
 
     @Override
     public void onBackPressed() {

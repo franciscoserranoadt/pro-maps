@@ -12,7 +12,8 @@ const store = {
 const DEF = { voice: true, radars: true, semaforos: true, incid: true, reports: true, beep: true,
   tomtom: '', style: 'auto', tolls: false, highways: false, traffic: false,
   fuel: 'g95', gas: true, limit: true, limitWarn: true, ttinc: true,
-  b3d: true, wxfx: true, wxchip: true, trees: false, lamps: false, car: 'arrow', carColor: '#33ccff', lanes: true };
+  b3d: true, wxfx: true, wxchip: true, trees: false, lamps: false, car: 'arrow', carColor: '#33ccff', lanes: true,
+  label: 'c', zbe: true, zbeShow: true, zbeAvoid: false, parkNear: true, syncCode: '' };
 const cfg = Object.assign({}, DEF, store.get('cfg', {}));
 const saveCfg = () => store.set('cfg', cfg);
 
@@ -34,6 +35,13 @@ function get(url) {
   return fetch(url).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); });
 }
 const getJSON = url => get(url).then(t => JSON.parse(t));
+function postJSON(url, obj) {
+  return new Promise((res, rej) => {
+    const id = 'r' + (++reqN); pend[id] = { res: t => { try { res(JSON.parse(t)); } catch (e) { rej(e); } }, rej };
+    N.post(id, url, JSON.stringify(obj), JSON.stringify({ 'Content-Type': 'application/json' }));
+    setTimeout(() => { if (pend[id]) { delete pend[id]; rej(new Error('Tiempo agotado')); } }, 60000);
+  });
+}
 
 /* ====================== Voz, avisos y utilidades ====================== */
 let lastSay = '';
@@ -322,6 +330,7 @@ async function boot() {
     if (preview) selectRoute(f.properties.i); else if (navigating) altSheet(+f.properties.i);
   });
   map.on('mouseenter', 'pois', () => map.getCanvas().style.cursor = 'pointer');
+  map.on('click', 'parkings', e => { const f = e.features && e.features[0]; if (f) showParking(+f.properties.i); });
   map.on('click', 'gas', e => { const f = e.features && e.features[0]; if (f) showGas(f.properties.id); });
   setupLongPress();
 
@@ -330,6 +339,7 @@ async function boot() {
   meMarker = new maplibregl.Marker({ element: el, rotationAlignment: 'map', pitchAlignment: 'map' }).setLngLat(start).addTo(map);
 
   map.once('load', () => {
+    drawPark();
     $('#splash').classList.add('hidden');
     const sh = N && N.takeShared ? N.takeShared() : ''; if (sh) onShared(sh);
   });
@@ -339,6 +349,10 @@ async function boot() {
   loadRadars(false);
   loadDgt(); setInterval(loadDgt, 3 * 60000);
   setTimeout(() => loadFuel(false), 2500);
+  setTimeout(() => loadZbe(false), 5000);
+  restorePark(); tripRestore();
+  setTimeout(syncPoll, 3000); setInterval(syncPoll, 120000);
+  addEventListener('resize', () => map && setTimeout(() => map.resize(), 100));
   setInterval(() => { const every = navigating ? 180000 : 300000; if (Date.now() - ttAt > every) loadTT(); }, 30000); setInterval(() => loadFuel(false), 60 * 60000);
   setInterval(() => { cleanReports(); refreshPois(); applyStyle(false); }, 5 * 60000);
   if (!N && navigator.geolocation) {
@@ -464,10 +478,12 @@ function placeMenu(pos) {
   openSheet('<div class="sTitle">📍 Este punto</div><div class="sSub">' + pos[1].toFixed(5) + ', ' + pos[0].toFixed(5) + '</div>' +
     '<button class="btn" id="pmGo">🚗 Ir aquí</button>' +
     '<button class="btn alt" id="pmRep">⚠️ Avisar de algo aquí</button>' +
+    '<button class="btn alt" id="pmPark">🅿️ He aparcado aquí</button>' +
     '<button class="btn alt" id="pmHome">🏠 Guardar como Casa</button>' +
     '<button class="btn alt" id="pmWork">💼 Guardar como Trabajo</button>');
   $('#pmGo').onclick = () => { closeSheet(); goTo({ name, lon: pos[0], lat: pos[1] }); };
   $('#pmRep').onclick = () => reportSheet(pos);
+  $('#pmPark').onclick = () => { closeSheet(); savePark(pos, true); };
   $('#pmHome').onclick = () => { setFav('casa', { name: 'Casa', lon: pos[0], lat: pos[1] }); closeSheet(); };
   $('#pmWork').onclick = () => { setFav('trabajo', { name: 'Trabajo', lon: pos[0], lat: pos[1] }); closeSheet(); };
 }
@@ -579,7 +595,7 @@ async function showSearch(q) {
 }
 
 /* ====================== Rutas ====================== */
-let navAlts = [], altBusy = false, altAt = 0;
+let navAlts = [], altBusy = false, altAt = 0, routeMode = 'car';
 let dest = null, stops = [], routes = [], selIdx = 0, preview = false, active = null, navigating = false, pendingGo = null;
 
 const VAL_ARROW = { 1: 'start', 2: 'start', 3: 'start', 4: 'dest', 5: 'dest', 6: 'dest', 7: 'straight', 8: 'straight', 9: 'slight_right',
@@ -592,11 +608,18 @@ const ARROW = { start: '⬆', dest: '🏁', straight: '⬆', slight_right: '⬈'
 async function routeValhalla(from, pts) {
   const loc0 = { lat: from[1], lon: from[0] };
   if (speedMs > 3 && heading >= 0) { loc0.heading = Math.round(heading); loc0.heading_tolerance = 60; }
-  const req = { locations: [loc0].concat(pts.map(p => ({ lat: p[1], lon: p[0], type: 'break' }))), costing: 'auto',
-    costing_options: { auto: { use_tolls: cfg.tolls ? 0 : 0.5, use_highways: cfg.highways ? 0 : 1 } },
+  const walk = routeMode === 'walk';
+  if (walk) { delete loc0.heading; delete loc0.heading_tolerance; }
+  const req = { locations: [loc0].concat(pts.map(p => ({ lat: p[1], lon: p[0], type: 'break' }))), costing: walk ? 'pedestrian' : 'auto',
+    costing_options: walk ? { pedestrian: {} } : { auto: { use_tolls: cfg.tolls ? 0 : 0.5, use_highways: cfg.highways ? 0 : 1 } },
     directions_options: { language: 'es-ES', units: 'kilometers' } };
+  if (!walk && cfg.zbeAvoid && zbeMustAvoid()) {
+    const ex = zbeExclude([from].concat(pts));
+    if (ex.length) req.exclude_polygons = ex;
+  }
   if (pts.length === 1) req.alternates = 2;
-  const j = await getJSON('https://valhalla1.openstreetmap.de/route?json=' + encodeURIComponent(JSON.stringify(req)));
+  const j = (req.exclude_polygons && N && N.post) ? await postJSON('https://valhalla1.openstreetmap.de/route', req)
+    : await getJSON('https://valhalla1.openstreetmap.de/route?json=' + encodeURIComponent(JSON.stringify(req)));
   const trips = [j.trip].concat((j.alternates || []).map(a => a.trip)).filter(Boolean);
   return trips.map(trip => {
     const coords = [], steps = [];
@@ -656,6 +679,10 @@ async function routeTomTom2(from, pts, withLanes) {
 /** Ruta desde «from» pasando por las paradas pendientes hasta el destino */
 async function calcRoutes(from) {
   const pts = stops.map(p => [p.lon, p.lat]).concat([[dest.lon, dest.lat]]);
+  if (routeMode === 'walk') return routeValhalla(from, pts);
+  if (cfg.zbeAvoid && zbeMustAvoid() && zbeExclude([from].concat(pts)).length) {
+    try { const r = await routeValhalla(from, pts); if (r.length) return r; } catch (e) { console.log('ZBE: ' + e.message); }
+  }
   if (cfg.tomtom) {
     try { const r = await routeTomTom(from, pts); if (r.length) return r; } catch (e) { console.log('TomTom: ' + e.message); }
   }
@@ -670,7 +697,9 @@ function prepRoute(r) {
   let minX = 180, minY = 90, maxX = -180, maxY = -90;
   for (const c of r.coords) { minX = Math.min(minX, c[0]); maxX = Math.max(maxX, c[0]); minY = Math.min(minY, c[1]); maxY = Math.max(maxY, c[1]); }
   r.bbox = [minX, minY, maxX, maxY];
+  r.walk = routeMode === 'walk';
   indexRoutePois(r);
+  r.zbe = r.walk ? null : zbeOnRoute(r);
   return r;
 }
 /** Busca los avisos que están encima de la ruta y su distancia desde el inicio */
@@ -721,10 +750,10 @@ function setDestMarker(d) {
   if (destMarker) destMarker.remove(); destMarker = null;
   if (d) destMarker = new maplibregl.Marker({ color: '#e53935' }).setLngLat([d.lon, d.lat]).addTo(map);
 }
-async function goTo(d, keepStops) {
+async function goTo(d, keepStops, walk) {
   if (navigating) stopNav(true);
-  if (!keepStops) stops = [];
-  dest = d; addRecent({ name: d.name, sub: d.sub || '', lon: d.lon, lat: d.lat });
+  if (!keepStops) { stops = []; routeMode = walk ? 'walk' : 'car'; }
+  dest = d; if (!d.park) addRecent({ name: d.name, sub: d.sub || '', lon: d.lon, lat: d.lat });
   setDestMarker(d);
   if (!me) {
     pendingGo = d;
@@ -754,7 +783,11 @@ function fitRoutes() {
 }
 function routeSheet() {
   const best = Math.min(...routes.map(r => r.time));
-  let h = '<div class="sTitle">🚗 ' + esc(dest.name) + '</div>' + (dest.sub ? '<div class="sSub">' + esc(dest.sub) + '</div>' : '');
+  let h = '<div class="sTitle">' + (routeMode === 'walk' ? '🚶 ' : '🚗 ') + esc(dest.name) + '</div>' + (dest.sub ? '<div class="sSub">' + esc(dest.sub) + '</div>' : '');
+  const z = routes[selIdx] && routes[selIdx].zbe;
+  if (z) h += '<div class="row"><div class="ri">🌿</div><div class="rt"><div class="r1">Entra en la ZBE ' + esc(z.name) + '</div><div class="r2">' +
+    (zbeMustAvoid() ? '⚠️ Con etiqueta ' + LABEL_NAME[cfg.label] + ' puede que no puedas entrar' : 'Con etiqueta ' + LABEL_NAME[cfg.label] + ' puedes entrar') + '</div></div></div>';
+  if (cfg.parkNear && routeMode === 'car') h += '<div class="row" id="rPark"><div class="ri">🅿️</div><div class="rt"><div class="r1">Aparcamientos cerca del destino</div><div class="r2" id="rParkN">Buscando…</div></div></div>';
   stops.forEach((p, i) => {
     h += '<div class="row"><div class="ri">📍</div><div class="rt"><div class="r1">Parada ' + (i + 1) + ': ' + esc(p.name) + '</div>' +
       (p.sub ? '<div class="r2">' + esc(p.sub) + '</div>' : '') + '</div><button class="rowbtn" data-xs="' + i + '">✕</button></div>';
@@ -775,6 +808,7 @@ function routeSheet() {
   $('#rGo').onclick = () => { sheetOnClose = null; closeSheet(); startNav(); };
   $('#rList').onclick = () => stepsSheet(routes[selIdx], false);
   $('#rStop').onclick = () => startPick('stop');
+  if ($('#rPark')) { $('#rPark').onclick = () => parkListSheet(true); loadParkings(dest).then(() => { const e = $('#rParkN'); if (e) e.textContent = parkings.length ? parkings.length + ' a menos de 800 m · toca para verlos' : 'No hay datos de aparcamientos aquí'; }); }
   $('#rGas').onclick = () => gasSheet(routes[selIdx], 0);
   $('#rFav').onclick = () => addFavorite(dest);
   $('#rHome').onclick = () => setFav('casa', Object.assign({}, dest, { name: 'Casa', sub: dest.name }));
@@ -787,11 +821,13 @@ function stepsSheet(r, fromNav) {
   const items = r.steps.map(s => ({ at: s.at, html: rowHtml(-1, ARROW[s.kind] || '⬆', s.text, s.street, fmtDist(s.at)) }))
     .concat((r.pois || []).map(o => ({ at: o.at, html: rowHtml(-1, CAT[o.p.cat].e, CAT[o.p.cat].n + (o.p.max ? ' · ' + o.p.max : ''), o.p.sub || '', fmtDist(o.at)) })));
   items.sort((a, b) => a.at - b.at).forEach(x => h += x.html);
-  if (fromNav) h += '<div class="btnrow"><button class="btn alt" id="sStop">➕ Añadir parada</button><button class="btn alt" id="sGas">⛽ Gasolineras</button></div>';
+  if (fromNav) h += '<div class="btnrow"><button class="btn alt" id="sStop">➕ Añadir parada</button><button class="btn alt" id="sGas">⛽ Gasolineras</button></div>' +
+    '<div class="btnrow"><button class="btn alt" id="sShare">📤 Compartir mi llegada</button><button class="btn alt" id="sPark">🅿️ Parkings</button></div>';
   h += '<button class="btn alt" id="sBack">Volver</button>';
   openSheet(h, fromNav ? null : cancelPreview);
   $('#sBack').onclick = () => fromNav ? closeSheet() : routeSheet();
-  if (fromNav) { $('#sStop').onclick = () => startPick('stop'); $('#sGas').onclick = () => gasSheet(active, nav.along); }
+  if (fromNav) { $('#sStop').onclick = () => startPick('stop'); $('#sGas').onclick = () => gasSheet(active, nav.along);
+    $('#sShare').onclick = () => { closeSheet(); shareEta(false); }; $('#sPark').onclick = () => { loadParkings(dest).then(() => parkListSheet(false)); }; }
 }
 function cancelPreview() {
   if (navigating || pickFor) return;
@@ -807,14 +843,17 @@ function startNav() {
   routes = []; altAt = Date.now();
   document.body.classList.add('nav'); $('#btnGas').classList.remove('hidden'); $('#btnSet2').classList.remove('hidden'); $('#routeBar').classList.remove('hidden');
   $('#searchBar').classList.add('hidden'); $('#banner').classList.remove('hidden'); $('#navBar').classList.remove('hidden');
-  drawRoutes(); setFollow(true);
-  if (cfg.tomtom && cfg.ttinc && Date.now() - ttAt > 60000) loadTT();
+  drawRoutes(); setTimeout(() => { map.resize(); setFollow(true); }, 60);
+  if (cfg.tomtom && cfg.ttinc && Date.now() - ttAt > 60000 && !active.walk) loadTT();
+  nav.zbeSaid = false; nav.parkAsked = false;
   const first = active.steps[0];
-  say((first ? first.pre + '. ' : '') + (active.nCam ? 'Hay ' + active.nCam + (active.nCam === 1 ? ' radar' : ' radares') + ' en la ruta.' : ''), true);
+  say((first ? first.pre + '. ' : '') + (!active.walk && active.nCam ? 'Hay ' + active.nCam + (active.nCam === 1 ? ' radar' : ' radares') + ' en la ruta.' : ''), true);
   if (me) navUpdate();
 }
 function stopNav(silent) {
-  navigating = false; active = null; dest = null; stops = []; navAlts = []; showLanes(null); hideAltPrompt(); declinedAlts.length = 0; setDestMarker(null);
+  navigating = false; active = null; dest = null; stops = []; navAlts = []; showLanes(null); sharedEta = null; hideNotice();
+  parkings = []; $('#parkPill').classList.add('hidden'); if (map && map.getSource('parkings')) map.getSource('parkings').setData({ type: 'FeatureCollection', features: [] });
+  setTimeout(() => map && map.resize(), 50); hideAltPrompt(); declinedAlts.length = 0; setDestMarker(null);
   document.body.classList.remove('nav'); $('#btnGas').classList.add('hidden'); $('#btnSet2').classList.add('hidden'); $('#routeBar').classList.add('hidden');
   $('#searchBar').classList.remove('hidden'); $('#banner').classList.add('hidden'); $('#navBar').classList.add('hidden');
   drawRoutes(); setFollow(true);
@@ -865,7 +904,7 @@ function navUpdate() {
   const nAlt = navAlts.length;
   navAlts = navAlts.filter(a => nav.along < a.divAt + 40);
   if (nAlt !== navAlts.length || !navUpdate.lastDraw || Date.now() - navUpdate.lastDraw > 30000) { navUpdate.lastDraw = Date.now(); drawRoutes(); }
-  if (!altBusy && Date.now() - altAt > 120000 && Date.now() - nav.lastReroute > 30000 && r.total - nav.along > 3000) refreshAlts();
+  if (!r.walk && !altBusy && Date.now() - altAt > 120000 && Date.now() - nav.lastReroute > 30000 && r.total - nav.along > 3000) refreshAlts();
   // 2) Próxima maniobra (y paradas intermedias superadas)
   while (nav.step < r.steps.length - 1 && r.steps[nav.step].at < nav.along + 8) {
     if (r.steps[nav.step].kind === 'stop' && stops.length) {
@@ -891,10 +930,14 @@ function navUpdate() {
   const far = v > 25 ? 2000 : v > 14 ? 800 : 350;
   const near = Math.max(60, Math.min(v * 7, 250));
   const legLen = nav.step > 0 ? st.at - r.steps[nav.step - 1].at : st.at;
-  if (st.kind === 'dest' && rest < 40 && !nav.arrived) {
-    nav.arrived = true; say('Has llegado a tu destino', true); toast('🏁 Has llegado');
-    setTimeout(() => stopNav(true), 4000); return;
+  if (st.kind === 'dest' && rest < (r.walk ? 20 : 40) && !nav.arrived) {
+    nav.arrived = true;
+    if (r.walk && dest && dest.park) { say('Has llegado a tu coche', true); toast('🚗 Has llegado a tu coche'); clearPark(); }
+    else { say('Has llegado a tu destino', true); toast('🏁 Has llegado'); }
+    const walked = r.walk;
+    setTimeout(() => { stopNav(true); if (!walked) arrivedPark(); }, 4000); return;
   }
+  navExtras(r, rest);
   if (dm <= far && dm > near + 80 && legLen > far * 0.6 && !nav.said['sf' + nav.step]) {
     nav.said['sf' + nav.step] = 1;
     say(st.kind === 'dest' ? 'En ' + sayDist(dm) + ' llegarás a tu destino' : st.kind === 'stop' ? 'En ' + sayDist(dm) + ' llegarás a tu parada'
@@ -911,6 +954,7 @@ let shownAlert = null;
 const alerted = {}; // id -> {t, stage}
 function checkAlerts() {
   if (!me) return;
+  if (navigating && active && active.walk) { $('#alert').classList.add('hidden'); return; }
   const v = Math.max(speedMs, 0), kmh = v * 3.6;
   const camRange = Math.max(400, Math.min(v * 30, 1100)); // ~30 s de antelación
   const incRange = Math.max(800, Math.min(v * 60, 2500));
@@ -950,6 +994,7 @@ function checkAlerts() {
     else t = 'Atención. ' + n + ' a ' + sayDist(c.d) + (c.p.road ? ' en la ' + c.p.road : '') +
       (c.p.delay >= 90 ? '. Pierdes unos ' + Math.round(c.p.delay / 60) + ' minutos' : '');
     beep(1); say(t);
+    if (trip && IS_CAMERA(c.p.cat)) trip.radars = (trip.radars || 0) + 1;
     break; // un aviso de voz por posición
   }
   // Tarjeta visual
@@ -988,6 +1033,8 @@ window.onGps = (lat, lon, spd, brg, acc, isGps) => {
   if (navigating) { navUpdate(); renderRouteBar(); }
   updateTramo();
   checkAlerts();
+  tripTick(pos, now);
+  if (!navigating) zbeFreeCheck();
   if (firstFix && !preview) map.jumpTo({ center: pos, zoom: 15.5 });
   if (firstFix && pendingGo) goTo(pendingGo, true);
   updateLimit();
@@ -1077,6 +1124,14 @@ function settingsSheet() {
     t('trees', '🌳 Árboles', 'De OpenStreetMap, al acercar mucho el mapa') +
     t('lamps', '💡 Farolas', 'De OpenStreetMap; de noche se iluminan') +
     '<button class="btn alt" id="bCar">🚗 Cambiar el icono del vehículo</button>' +
+    '<div class="sec">🌿 Zonas de Bajas Emisiones</div>' +
+    '<div class="set"><label>🏷️ Etiqueta ambiental de tu coche</label><select id="labelSel">' + Object.keys(LABEL_NAME).map(k => '<option value="' + k + '">' + LABEL_NAME[k] + '</option>').join('') + '</select></div>' +
+    t('zbe', '🔔 Avisar al entrar en una ZBE') + t('zbeShow', '🗺️ Dibujar las ZBE en el mapa') +
+    t('zbeAvoid', '↪️ Evitar las ZBE en las rutas', 'Solo si tu etiqueta puede tener problemas (sin etiqueta, B o C). Las rutas se calculan sin TomTom') +
+    '<div class="sec">🅿️ Aparcamiento</div>' +
+    t('parkNear', '🅿️ Aparcamientos cerca del destino', 'Un botón pequeño al acercarte; datos de OpenStreetMap') +
+    '<button class="btn alt" id="bSync">📲 Vincular con el móvil o la pantalla del coche</button>' +
+    '<button class="btn alt" id="bStats">📊 Mis viajes y estadísticas</button>' +
     '<div class="sec">⚙️ Otros</div>' +
     '<div class="set" style="display:block"><label>🚦 Clave de TomTom (opcional, gratis)<small>Activa el tráfico en directo y las rutas que esquivan atascos. Se saca gratis en developer.tomtom.com</small></label>' +
     '<input type="text" id="ttKey" placeholder="Pega aquí tu clave" value="' + esc(cfg.tomtom) + '" autocapitalize="off" autocorrect="off" spellcheck="false"></div>' +
@@ -1091,6 +1146,10 @@ function settingsSheet() {
     toast(cfg.tomtom ? 'Clave de TomTom guardada' : 'Clave quitada'); if (had !== !!cfg.tomtom || cfg.tomtom) applyStyle(true);
     if (cfg.tomtom) loadTT(); else { ttInc = []; refreshPois(); }
   };
+  $('#labelSel').value = cfg.label;
+  $('#labelSel').onchange = e => { cfg.label = e.target.value; saveCfg(); };
+  $('#bSync').onclick = syncSheet; $('#bStats').onclick = statsSheet;
+  document.querySelectorAll('#sheetBody input[data-k=zbeShow]').forEach(i => i.addEventListener('change', () => ['zbeFill', 'zbeLine'].forEach(id => map.getLayer(id) && map.setLayoutProperty(id, 'visibility', cfg.zbeShow ? 'visible' : 'none'))));
   $('#styleSel').value = cfg.style;
   $('#styleSel').onchange = e => { cfg.style = e.target.value; saveCfg(); applyStyle(true); };
   $('#bCar').onclick = carSheet;
@@ -1206,7 +1265,7 @@ let tramo = null;
 function updateTramo() {
   const box = $('#tramo');
   const hide = () => { box.classList.add('hidden'); document.body.classList.remove('tramo'); };
-  if (!cfg.radars || !me) { tramo = null; return hide(); }
+  if (!cfg.radars || !me || (navigating && active && active.walk)) { tramo = null; return hide(); }
   const now = Date.now();
   if (!tramo) {
     if (navigating && active && active.pois) {
@@ -1287,6 +1346,17 @@ function addLookLayers() {
       paint: { 'fill-extrusion-color': dark ? '#2a3448' : '#d9d3c7', 'fill-extrusion-opacity': 0.85,
         'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 8], 'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0] } }, before);
   }
+  // Zonas de Bajas Emisiones
+  map.addSource('zbe', { type: 'geojson', data: zbeGeo() });
+  map.addLayer({ id: 'zbeFill', type: 'fill', source: 'zbe', layout: { visibility: cfg.zbeShow ? 'visible' : 'none' },
+    paint: { 'fill-color': '#43a047', 'fill-opacity': 0.08 } }, before);
+  map.addLayer({ id: 'zbeLine', type: 'line', source: 'zbe', layout: { visibility: cfg.zbeShow ? 'visible' : 'none' },
+    paint: { 'line-color': '#2e7d32', 'line-width': 2.5, 'line-dasharray': [3, 2], 'line-opacity': 0.8 } }, before);
+  // Aparcamientos cerca del destino
+  if (!map.hasImage('i_park')) map.addImage('i_park', makePark(), { pixelRatio: 2 });
+  map.addSource('parkings', { type: 'geojson', data: parkGeo() });
+  map.addLayer({ id: 'parkings', type: 'symbol', source: 'parkings', minzoom: 13,
+    layout: { 'icon-image': 'i_park', 'icon-size': 0.8, 'icon-allow-overlap': true } });
   // Árboles y farolas
   if (!map.hasImage('i_tree')) map.addImage('i_tree', makeGlyph('🌳', 44), { pixelRatio: 2 });
   if (!map.hasImage('i_lamp')) map.addImage('i_lamp', makeLamp(), { pixelRatio: 2 });
@@ -1489,7 +1559,7 @@ function showLanes(list) {
   el.classList.remove('hidden'); document.body.classList.add('lanes');
 }
 function updateLanes(r, st, dm) {
-  if (!cfg.lanes) return showLanes(null);
+  if (!cfg.lanes || r.walk) return showLanes(null);
   // 1) TomTom: tramos con carriles de la ruta
   const sec = (r.lanes || []).find(l => l.at0 - nav.along <= 600 && l.at1 >= nav.along - 10);
   if (sec) {
@@ -1506,6 +1576,346 @@ function updateLanes(r, st, dm) {
     }
   }
   showLanes(null);
+}
+
+
+/* ====================== Aviso genérico ====================== */
+let noticeYes = null, noticeT = null;
+function showNotice(ico, title, sub, yesLabel, onYes, noLabel, ms) {
+  $('#nIco').textContent = ico; $('#nTitle').textContent = title; $('#nSub').textContent = sub || '';
+  $('#nYes').textContent = yesLabel || 'Aceptar'; $('#nYes').classList.toggle('hidden', !onYes);
+  $('#nNo').textContent = noLabel || 'Cerrar';
+  noticeYes = onYes; $('#notice').classList.remove('hidden');
+  clearTimeout(noticeT); if (ms) noticeT = setTimeout(hideNotice, ms);
+}
+function hideNotice() { clearTimeout(noticeT); $('#notice').classList.add('hidden'); noticeYes = null; }
+$('#nNo').onclick = hideNotice;
+$('#nYes').onclick = () => { const f = noticeYes; hideNotice(); if (f) f(); };
+
+/* ====================== ¿Dónde aparqué? (+ sincronizar con el otro dispositivo) ====================== */
+let park = store.get('park', null), parkMarker = null;
+const devId = store.get('devId', null) || (() => { const id = Math.random().toString(36).slice(2, 10); store.set('devId', id); return id; })();
+function drawPark() {
+  if (parkMarker) { parkMarker.remove(); parkMarker = null; }
+  $('#qPark').classList.toggle('hidden', !park);
+  if (!park || !map) return;
+  const el = document.createElement('div'); el.className = 'parkMk'; el.textContent = 'P';
+  el.onclick = ev => { ev.stopPropagation(); parkSheet(); };
+  parkMarker = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([park.lon, park.lat]).addTo(map);
+}
+function restorePark() { drawPark(); }
+function savePark(pos, manual, from) {
+  park = { lon: pos[0], lat: pos[1], t: Date.now(), dev: from ? 'otro' : devId };
+  store.set('park', park); drawPark();
+  if (!from) syncPush();
+  if (manual) { toast('🅿️ Aparcamiento guardado'); }
+  if (from) toast('🅿️ Ubicación de tu coche recibida' + (from === 'sync' ? ' desde el otro dispositivo' : ''), 5000);
+}
+function clearPark() { park = null; store.set('park', null); store.set('parkClearedAt', Date.now()); drawPark(); syncPush(true); }
+function parkText() {
+  return '🅿️ Mi coche está aparcado aquí: https://maps.google.com/?q=' + park.lat.toFixed(6) + ',' + park.lon.toFixed(6) + ' (Pro Maps)';
+}
+function arrivedPark() {
+  if (!me) return;
+  savePark(me, false);
+  const paired = !!cfg.syncCode;
+  showNotice('🅿️', 'Aparcamiento guardado', paired ? 'Ya lo tienes también en el otro dispositivo vinculado' : 'Para verlo en el móvil, envíatelo o vincula los dispositivos en Ajustes',
+    paired ? null : 'Enviar por WhatsApp', paired ? null : () => N && N.share(parkText(), true), 'Vale', 15000);
+}
+function parkSheet() {
+  if (!park) { toast('No hay ningún aparcamiento guardado'); return; }
+  const d = me ? dist(me, [park.lon, park.lat]) : null;
+  const ago = Math.round((Date.now() - park.t) / 60000);
+  const agoTxt = ago < 60 ? 'hace ' + ago + ' min' : ago < 1440 ? 'hace ' + Math.floor(ago / 60) + ' h ' + (ago % 60) + ' min' : 'el ' + new Date(park.t).toLocaleDateString('es-ES');
+  openSheet('<div class="sTitle">🅿️ Tu coche</div><div class="sSub">Aparcado ' + agoTxt + (d != null ? ' · a ' + fmtDist(d) + ' de ti' : '') + '</div>' +
+    '<button class="btn" id="pkWalk">🚶 Llévame andando</button>' +
+    '<div class="btnrow"><button class="btn alt" id="pkSee">🗺️ Ver en el mapa</button><button class="btn alt" id="pkShare">📤 Compartir</button></div>' +
+    '<button class="btn red" id="pkDel">🗑️ Ya he cogido el coche</button>');
+  $('#pkWalk').onclick = () => { closeSheet(); goTo({ name: 'Mi coche', sub: 'Aparcado ' + agoTxt, lon: park.lon, lat: park.lat, park: true }, false, true); };
+  $('#pkSee').onclick = () => { closeSheet(); setFollow(false); map.flyTo({ center: [park.lon, park.lat], zoom: 17 }); };
+  $('#pkShare').onclick = () => N && N.share(parkText(), false);
+  $('#pkDel').onclick = () => { closeSheet(); clearPark(); toast('Aparcamiento borrado'); };
+}
+// Sincronización: canal privado en ntfy.sh (gratis, sin cuenta). Los mensajes se guardan 12 horas.
+const syncTopic = () => cfg.syncCode ? 'promaps-' + cfg.syncCode.toLowerCase() + '-p' : null;
+function syncPush(cleared) {
+  const t = syncTopic(); if (!t || !N || !N.post) return;
+  const msg = JSON.stringify({ type: cleared ? 'unpark' : 'park', lon: park && park.lon, lat: park && park.lat, t: Date.now(), dev: devId });
+  const id = 'r' + (++reqN); pend[id] = { res: () => { }, rej: e => console.log('sync ' + e.message) };
+  N.post(id, 'https://ntfy.sh/' + t, msg, JSON.stringify({ Title: 'Pro Maps', Tags: 'car' }));
+}
+async function syncPoll() {
+  const t = syncTopic(); if (!t) return;
+  try {
+    const txt = await get('https://ntfy.sh/' + t + '/json?poll=1&since=12h');
+    let last = null;
+    for (const line of txt.split('\n')) {
+      if (!line.trim()) continue;
+      try { const m = JSON.parse(line); if (m.event !== 'message') continue; const o = JSON.parse(m.message); if (o.dev !== devId && (!last || o.t > last.t)) last = o; } catch (e) { }
+    }
+    if (!last) return;
+    const mine = park ? park.t : (store.get('parkClearedAt', 0));
+    if (last.t <= mine || last.t <= store.get('syncSeen', 0)) return;
+    store.set('syncSeen', last.t);
+    if (last.type === 'unpark') { if (park) { park = null; store.set('park', null); drawPark(); } return; }
+    park = { lon: last.lon, lat: last.lat, t: last.t, dev: 'otro' }; store.set('park', park); drawPark();
+    toast('🅿️ Tu coche se ha aparcado (desde el otro dispositivo)', 5000);
+  } catch (e) { console.log('sync poll ' + e.message); }
+}
+window.onResume = () => { syncPoll(); };
+function syncSheet() {
+  const code = cfg.syncCode;
+  let h = '<div class="sTitle">📲 Vincular dispositivos</div><div class="sSub">Vincula la pantalla del coche y el móvil: cuando aparques con la pantalla del coche, ' +
+    'la ubicación del coche aparecerá en el móvil (botón «🅿️ Mi coche»).</div>';
+  if (code) h += '<div class="muted">Código de vinculación de este dispositivo:</div><div class="code">' + esc(code.slice(0, 4) + '-' + code.slice(4)) + '</div>' +
+    '<div class="muted" style="margin-bottom:10px">Escribe este mismo código en el otro dispositivo (Ajustes → Vincular). Si ya lo has hecho, están vinculados.</div>' +
+    '<button class="btn red" id="syOff">Desvincular</button>';
+  else h += '<button class="btn" id="syNew">➕ Crear un código nuevo</button><div class="sec">O escribe el código del otro dispositivo</div>' +
+    '<input class="inl" id="syIn" maxlength="9" placeholder="Por ejemplo: K7PQ-M2XD" autocapitalize="characters"><button class="btn alt" id="syJoin">Vincular</button>';
+  h += '<div class="muted" style="margin-top:10px">Funciona gratis a través de ntfy.sh, un servicio público de avisos. Solo viaja la posición del coche, en un canal que solo conoce quien tiene el código, y se borra a las 12 horas. ' +
+    'Si abres la app del móvil más tarde de esas 12 horas, envíatela por WhatsApp desde la pantalla del coche (🅿️ Mi coche → Compartir).</div>';
+  openSheet(h);
+  if (code) $('#syOff').onclick = () => { cfg.syncCode = ''; saveCfg(); syncSheet(); toast('Desvinculado'); };
+  else {
+    $('#syNew').onclick = () => {
+      const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let c = '';
+      for (let i = 0; i < 8; i++) c += A[Math.floor(Math.random() * A.length)];
+      cfg.syncCode = c; saveCfg(); syncSheet();
+    };
+    $('#syJoin').onclick = () => {
+      const c = $('#syIn').value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (c.length !== 8) { toast('El código tiene 8 letras o números'); return; }
+      cfg.syncCode = c; saveCfg(); toast('✅ Vinculado'); syncPoll(); syncSheet();
+    };
+  }
+}
+
+/* ====================== Zonas de Bajas Emisiones ====================== */
+const LABEL_NAME = { none: 'Sin etiqueta', b: 'B (amarilla)', c: 'C (verde)', eco: 'ECO', cero: '0 (cero emisiones)' };
+const zbeMustAvoid = () => cfg.label === 'none' || cfg.label === 'b' || cfg.label === 'c';
+let zbes = store.get('zbe', []);
+async function loadZbe(force) {
+  if (!force && zbes.length && Date.now() - store.get('zbeAt', 0) < 30 * 864e5) { refreshZbe(); return; }
+  const q = '[out:json][timeout:120];area["ISO3166-1"="ES"][admin_level=2]->.es;(relation["boundary"="low_emission_zone"](area.es);way["boundary"="low_emission_zone"](area.es););out geom;';
+  for (const base of OVERPASS) {
+    try {
+      const j = await getJSON(base + encodeURIComponent(q));
+      const out = [];
+      for (const el of j.elements || []) {
+        const name = (el.tags && (el.tags.name || el.tags['name:es'])) || 'Zona de Bajas Emisiones';
+        let rings = [];
+        if (el.type === 'way' && el.geometry) rings.push(el.geometry.map(p => [p.lon, p.lat]));
+        if (el.type === 'relation') rings = joinRings((el.members || []).filter(m => m.type === 'way' && m.geometry && m.role !== 'inner').map(m => m.geometry.map(p => [p.lon, p.lat])));
+        for (let r of rings) {
+          if (r.length < 4) continue;
+          if (r.length > 400) { const k = Math.ceil(r.length / 400); r = r.filter((p, i) => i % k === 0); r.push(r[0]); }
+          r = r.map(p => [+p[0].toFixed(5), +p[1].toFixed(5)]);
+          let a = 180, b = 90, c = -180, d = -90; for (const p of r) { a = Math.min(a, p[0]); c = Math.max(c, p[0]); b = Math.min(b, p[1]); d = Math.max(d, p[1]); }
+          out.push({ name, ring: r, bbox: [a, b, c, d] });
+        }
+      }
+      zbes = out; store.set('zbe', zbes); store.set('zbeAt', Date.now()); refreshZbe(); return;
+    } catch (e) { console.log('ZBE ' + base + ': ' + e.message); }
+  }
+}
+/** Une los tramos de un borde en anillos cerrados */
+function joinRings(segs) {
+  const rings = [], key = p => p[0].toFixed(6) + ',' + p[1].toFixed(6);
+  segs = segs.map(s => s.slice());
+  while (segs.length) {
+    let ring = segs.shift();
+    let guard = 0;
+    while (key(ring[0]) !== key(ring[ring.length - 1]) && guard++ < 500) {
+      const endK = key(ring[ring.length - 1]);
+      const i = segs.findIndex(s => key(s[0]) === endK || key(s[s.length - 1]) === endK);
+      if (i < 0) break;
+      let s = segs.splice(i, 1)[0]; if (key(s[0]) !== endK) s = s.reverse();
+      ring = ring.concat(s.slice(1));
+    }
+    if (key(ring[0]) === key(ring[ring.length - 1])) rings.push(ring);
+  }
+  return rings;
+}
+const zbeGeo = () => ({ type: 'FeatureCollection', features: zbes.map(z => ({ type: 'Feature', geometry: { type: 'Polygon', coordinates: [z.ring] }, properties: { name: z.name } })) });
+function refreshZbe() { if (map && map.getSource('zbe')) map.getSource('zbe').setData(zbeGeo()); }
+function inRing(pt, r) {
+  let inside = false;
+  for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+    const xi = r[i][0], yi = r[i][1], xj = r[j][0], yj = r[j][1];
+    if (((yi > pt[1]) !== (yj > pt[1])) && (pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+const zbeAt = pt => zbes.find(z => pt[0] >= z.bbox[0] && pt[0] <= z.bbox[2] && pt[1] >= z.bbox[1] && pt[1] <= z.bbox[3] && inRing(pt, z.ring));
+/** Zonas a evitar: las que no contienen el origen, las paradas ni el destino */
+function zbeExclude(pts) {
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const a = Math.min(...xs) - 0.5, c = Math.max(...xs) + 0.5, b = Math.min(...ys) - 0.5, d = Math.max(...ys) + 0.5;
+  return zbes.filter(z => z.bbox[2] > a && z.bbox[0] < c && z.bbox[3] > b && z.bbox[1] < d && !pts.some(p => inRing(p, z.ring))).map(z => z.ring);
+}
+function zbeOnRoute(r) {
+  if (!zbes.length) return null;
+  const startIn = zbeAt(r.coords[0]);
+  for (let i = 0, last = -1e9; i < r.coords.length; i++) {
+    if (r.cum[i] - last < 80) continue; last = r.cum[i];
+    const z = zbeAt(r.coords[i]);
+    if (z && z !== startIn) return { at: r.cum[i], name: z.name };
+  }
+  return null;
+}
+let zbeInside = null;
+function zbeFreeCheck() {
+  if (!cfg.zbe || !me || !zbes.length) return;
+  const z = zbeAt(me);
+  if (z && z !== zbeInside && speedMs > 3) {
+    if (zbeMustAvoid()) { beep(1); say('Has entrado en la Zona de Bajas Emisiones ' + z.name + '. Comprueba que tu etiqueta ' + LABEL_NAME[cfg.label].split(' ')[0] + ' puede circular'); }
+    else toast('🌿 Zona de Bajas Emisiones: ' + z.name);
+  }
+  zbeInside = z || null;
+}
+
+/* ====================== Llegada compartida, ZBE y parkings durante la ruta ====================== */
+let sharedEta = null;
+function etaNow() { const r = active; return Date.now() + r.time * Math.max(0, r.total - nav.along) / r.total * 1000; }
+function shareEta(update) {
+  if (!active || !dest || !N) return;
+  const eta = etaNow(), hh = new Date(eta).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+  const rest = Math.max(0, active.total - nav.along);
+  const txt = (update ? '⏱️ Actualización: ' : '🚗 ') + 'Voy de camino a ' + dest.name + '. ' + (update ? 'Ahora llego' : 'Llego') + ' sobre las ' + hh +
+    ' (me quedan ' + fmtDist(rest) + '). https://maps.google.com/?q=' + me[1].toFixed(5) + ',' + me[0].toFixed(5) + ' — Pro Maps';
+  sharedEta = eta;
+  N.share(txt, true);
+}
+function navExtras(r, rest) {
+  // Retraso respecto a la hora de llegada que compartiste
+  if (sharedEta && !nav.etaAsking) {
+    const diff = (etaNow() - sharedEta) / 60000;
+    if (Math.abs(diff) >= 5) {
+      nav.etaAsking = true;
+      showNotice('⏱️', diff > 0 ? 'Llegarás ' + Math.round(diff) + ' min más tarde' : 'Llegarás ' + Math.round(-diff) + ' min antes',
+        'de lo que avisaste. ¿Quieres enviar la nueva hora?', 'Avisar', () => { nav.etaAsking = false; shareEta(true); }, 'Ahora no', 20000);
+      setTimeout(() => { nav.etaAsking = false; sharedEta = etaNow(); }, 21000);
+    }
+  }
+  // Entrada en una ZBE
+  if (cfg.zbe && r.zbe && !nav.zbeSaid && r.zbe.at - nav.along < 1500 && r.zbe.at > nav.along) {
+    nav.zbeSaid = true;
+    if (zbeMustAvoid()) { beep(1); say('Atención. En ' + sayDist(r.zbe.at - nav.along) + ' entras en la Zona de Bajas Emisiones ' + r.zbe.name + '. Comprueba que tu etiqueta puede circular'); }
+    else toast('🌿 Entras en la ZBE ' + r.zbe.name + ' (tu etiqueta puede)');
+  }
+  // Parkings cerca del destino: solo un botón pequeño al acercarte
+  if (cfg.parkNear && !r.walk && rest < 1500 && !nav.parkAsked) {
+    nav.parkAsked = true;
+    loadParkings(dest).then(() => { if (navigating && parkings.length) { $('#parkN').textContent = parkings.length; $('#parkPill').classList.remove('hidden'); } });
+  }
+}
+
+/* ====================== Aparcamientos cerca del destino (OpenStreetMap) ====================== */
+let parkings = [], parkingsFor = null;
+function makePark() {
+  const S = 44, c = document.createElement('canvas'); c.width = c.height = S; const x = c.getContext('2d');
+  x.fillStyle = '#1565c0'; x.strokeStyle = '#fff'; x.lineWidth = 4;
+  x.beginPath(); x.roundRect ? x.roundRect(3, 3, S - 6, S - 6, 9) : x.rect(3, 3, S - 6, S - 6); x.fill(); x.stroke();
+  x.fillStyle = '#fff'; x.font = 'bold 28px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('P', S / 2, S / 2 + 2);
+  return x.getImageData(0, 0, S, S);
+}
+const parkGeo = () => ({ type: 'FeatureCollection', features: parkings.map((p, i) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lon, p.lat] }, properties: { i } })) });
+async function loadParkings(d) {
+  if (!d) return;
+  if (parkingsFor && Math.abs(parkingsFor.lat - d.lat) < 1e-4 && Math.abs(parkingsFor.lon - d.lon) < 1e-4) return;
+  parkingsFor = d;
+  const q = '[out:json][timeout:20];nwr(around:800,' + d.lat.toFixed(5) + ',' + d.lon.toFixed(5) + ')["amenity"="parking"]["access"!~"private|customers|no|permissive"];out center tags 60;';
+  for (const base of OVERPASS) {
+    try {
+      const j = await getJSON(base + encodeURIComponent(q));
+      parkings = (j.elements || []).map(e => {
+        const t = e.tags || {}, lon = e.lon != null ? e.lon : e.center && e.center.lon, lat = e.lat != null ? e.lat : e.center && e.center.lat;
+        const kind = t.parking === 'underground' ? 'Subterráneo' : t.parking === 'multi-storey' ? 'Edificio' : t.parking === 'street_side' || t.parking === 'lane' ? 'En la calle' : 'Superficie';
+        const fee = t.fee === 'no' ? 'Gratis' : t.fee === 'yes' ? 'De pago' : '';
+        return { lon, lat, name: t.name || ('Aparcamiento ' + kind.toLowerCase()), kind, fee, cap: t.capacity || '', d: dist([d.lon, d.lat], [lon, lat]) };
+      }).filter(p => p.lon != null && (p.cap === '' || +p.cap >= 8 || p.name.indexOf('Aparcamiento') !== 0)).sort((a, b) => a.d - b.d).slice(0, 25);
+      if (map && map.getSource('parkings')) map.getSource('parkings').setData(parkGeo());
+      return;
+    } catch (e) { console.log('Parkings: ' + e.message); }
+  }
+}
+function showParking(i) {
+  const p = parkings[i]; if (!p) return;
+  const h = '<div class="pop"><b>🅿️ ' + esc(p.name) + '</b><div>' + esc([p.kind, p.fee, p.cap ? p.cap + ' plazas' : ''].filter(Boolean).join(' · ')) + '</div>' +
+    '<div class="muted">A ' + fmtDist(p.d) + ' del destino</div><div class="pb"><button data-go="1">🚗 Llévame aquí</button></div></div>';
+  const pop = new maplibregl.Popup({ offset: 16, maxWidth: '300px' }).setLngLat([p.lon, p.lat]).setHTML(h).addTo(map);
+  pop.getElement().querySelector('[data-go]').onclick = () => { pop.remove(); goToParking(p); };
+}
+function goToParking(p) {
+  const finalDest = dest;
+  $('#parkPill').classList.add('hidden');
+  goTo({ name: p.name, sub: 'Aparcamiento cerca de ' + (finalDest ? finalDest.name : 'tu destino'), lon: p.lon, lat: p.lat }, true).then(() => { if (preview && routes.length) { sheetOnClose = null; closeSheet(); startNav(); } });
+}
+function parkListSheet(fromPreview) {
+  let h = '<div class="sTitle">🅿️ Aparcamientos cerca del destino</div>';
+  if (!parkings.length) h += '<div class="muted">No hay aparcamientos apuntados en OpenStreetMap cerca de este destino.</div>';
+  parkings.forEach((p, i) => {
+    h += '<div class="row" data-p="' + i + '"><div class="ri">🅿️</div><div class="rt"><div class="r1">' + esc(p.name) + '</div><div class="r2">' +
+      esc([p.kind, p.fee, p.cap ? p.cap + ' plazas' : ''].filter(Boolean).join(' · ')) + '</div></div><div class="rr">' + fmtDist(p.d) + '</div></div>';
+  });
+  h += '<div class="muted" style="margin-top:8px">Datos de OpenStreetMap. No incluyen plazas libres en tiempo real.</div>';
+  openSheet(h, fromPreview ? () => setTimeout(routeSheet, 50) : null);
+  document.querySelectorAll('#sheetBody [data-p]').forEach(el => el.onclick = () => { sheetOnClose = null; closeSheet(); goToParking(parkings[+el.dataset.p]); });
+}
+
+/* ====================== Viajes y estadísticas ====================== */
+let trip = null;
+function tripRestore() {
+  const t = store.get('trip', null);
+  if (t && Date.now() - t.lastMove < 10 * 60000) trip = t; else if (t) tripClose(t);
+}
+function tripClose(t) {
+  t = t || trip; if (!t) return;
+  if (t.km >= 0.3) { const all = store.get('trips', []); all.unshift({ s: t.start, e: t.lastMove, km: +t.km.toFixed(2), mv: Math.round(t.moving), max: Math.round(t.max), rad: t.radars || 0, to: t.to || '' }); store.set('trips', all.slice(0, 300)); }
+  if (t === trip) trip = null; store.set('trip', null);
+}
+function tripTick(pos, now) {
+  const kmh = speedMs * 3.6;
+  if (navigating && active && active.walk) return;
+  if (!trip) {
+    if (kmh < 12 || gpsAcc > 50) return;
+    trip = { start: now, last: pos, lastT: now, lastMove: now, km: 0, moving: 0, max: 0, radars: 0, to: navigating && dest ? dest.name : '' };
+    return;
+  }
+  const dt = (now - trip.lastT) / 1000, d = dist(trip.last, pos);
+  if (dt > 0 && dt < 15 && d < 600 && gpsAcc < 60) { trip.km += d / 1000; if (kmh > 3) trip.moving += dt; }
+  trip.last = pos; trip.lastT = now;
+  if (kmh > 3) trip.lastMove = now;
+  if (kmh > trip.max && gpsAcc < 30) trip.max = kmh;
+  if (navigating && dest && !trip.to) trip.to = dest.name;
+  if (now - trip.lastMove > 5 * 60000) { tripClose(); return; }
+  if (!tripTick.saved || now - tripTick.saved > 30000) { tripTick.saved = now; store.set('trip', trip); }
+}
+function statsSheet() {
+  const all = store.get('trips', []).slice();
+  if (trip && trip.km >= 0.3) all.unshift({ s: trip.start, e: trip.lastMove, km: trip.km, mv: trip.moving, max: trip.max, rad: trip.radars, to: (trip.to || '') + ' (en curso)' });
+  const now = new Date(), day0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const wk0 = day0 - ((now.getDay() + 6) % 7) * 864e5, mo0 = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const sum = from => { const l = all.filter(t => t.s >= from); const km = l.reduce((a, t) => a + t.km, 0), mv = l.reduce((a, t) => a + t.mv, 0);
+    return { n: l.length, km, mv, avg: mv > 0 ? km / (mv / 3600) : 0 }; };
+  const box = (title, o) => '<div class="stat"><span>' + title + '</span><b>' + (o.km < 100 ? o.km.toFixed(1).replace('.', ',') : Math.round(o.km)) + ' km</b><span>' +
+    o.n + ' viaje' + (o.n === 1 ? '' : 's') + ' · ' + fmtTime(o.mv) + (o.avg ? ' · ' + Math.round(o.avg) + ' km/h' : '') + '</span></div>';
+  const maxEver = all.reduce((a, t) => Math.max(a, t.max || 0), 0), radEver = all.reduce((a, t) => a + (t.rad || 0), 0);
+  let h = '<div class="sTitle">📊 Mis viajes</div><div class="stats">' + box('Hoy', sum(day0)) + box('Esta semana', sum(wk0)) + box('Este mes', sum(mo0)) + box('Total', sum(0)) +
+    '</div><div class="stats"><div class="stat"><span>Velocidad máxima</span><b>' + Math.round(maxEver) + ' km/h</b></div><div class="stat"><span>Radares pasados</span><b>' + radEver + '</b></div></div>';
+  h += '<div class="sec">Últimos viajes</div>';
+  all.slice(0, 20).forEach(t => {
+    const d = new Date(t.s);
+    h += '<div class="row"><div class="ri">🚗</div><div class="rt"><div class="r1">' + esc(t.to || 'Trayecto libre') + '</div><div class="r2">' +
+      d.toLocaleDateString('es-ES', { weekday: 'short', day: '2-digit', month: '2-digit' }) + ' ' + d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) +
+      ' · ' + fmtTime(t.mv) + ' · media ' + (t.mv > 0 ? Math.round(t.km / (t.mv / 3600)) : 0) + ' km/h · máx ' + Math.round(t.max) + '</div></div><div class="rr">' +
+      (+t.km).toFixed(1).replace('.', ',') + ' km</div></div>';
+  });
+  if (!all.length) h += '<div class="muted">Todavía no hay viajes. Se guardan solos cuando conduces con Pro Maps abierta.</div>';
+  h += '<button class="btn alt" id="stDel">🗑️ Borrar el historial</button>';
+  openSheet(h);
+  $('#stDel').onclick = () => { openSheet('<div class="sTitle">¿Borrar todos los viajes?</div><button class="btn red" id="sdY">Sí, borrar</button><button class="btn alt" id="sdN">No</button>');
+    $('#sdY').onclick = () => { store.set('trips', []); statsSheet(); }; $('#sdN').onclick = statsSheet; };
 }
 
 /* ====================== Rutas alternativas durante el viaje ====================== */
@@ -1715,6 +2125,9 @@ $('#qCasa').onclick = () => favs.casa ? goTo(favs.casa) : startPick('casa');
 $('#qTrabajo').onclick = () => favs.trabajo ? goTo(favs.trabajo) : startPick('trabajo');
 $('#qFav').onclick = favSheet;
 $('#qGas').onclick = () => gasSheet(null, 0);
+$('#qPark').onclick = () => parkSheet();
+$('#qStats').onclick = () => statsSheet();
+$('#parkPill').onclick = () => parkListSheet(false);
 $('#btnGas').onclick = () => gasSheet(active, nav.along);
 
 /* ====================== Gasolineras (precios oficiales) ====================== */
@@ -1852,7 +2265,7 @@ async function fetchWays(c) {
   limitBusy = false;
 }
 function updateLimit() {
-  if ((!cfg.limit && !(cfg.lanes && navigating)) || !me) { $('#limit').classList.add('hidden'); roadLimit = 0; return; }
+  if ((!cfg.limit && !(cfg.lanes && navigating)) || !me || (navigating && active && active.walk)) { $('#limit').classList.add('hidden'); roadLimit = 0; return; }
   if (!limitBusy && (!limitWays || dist(limitWays.c, me) > limitWays.R * 0.55) && Date.now() - limitAt > 15000) fetchWays(me);
   if (!limitWays) return;
   let best = null;
@@ -1911,6 +2324,10 @@ function nameFrom(t) {
 }
 async function onShared(raw) {
   let t = String(raw || '').trim(); if (!t) return;
+  if (/🅿️|aparcad/i.test(t)) {
+    const c = coordsFrom(t);
+    if (c) { savePark(c, false, 'WhatsApp'); setTimeout(parkSheet, 600); return; }
+  }
   toast('📍 Abriendo la ubicación…');
   try { t = decodeURIComponent(t.replace(/\+/g, ' ')); } catch (e) { }
   if (/^geo:/i.test(t)) {
@@ -1943,6 +2360,7 @@ window.onShared = onShared;
 /* ====================== Botón atrás de Android ====================== */
 window.onBack = () => {
   if (altPromptFor) { declineAlt(false); return true; }
+  if (!$('#notice').classList.contains('hidden')) { hideNotice(); return true; }
   if (sheetOpen()) { closeSheet(); return true; }
   if (pickFor) { pickCancel(); return true; }
   if (document.activeElement === $('#q')) { $('#q').blur(); return true; }

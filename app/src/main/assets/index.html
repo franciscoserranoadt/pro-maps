@@ -25,9 +25,12 @@
   <button class="qchip" id="qCasa">🏠 Casa</button>
   <button class="qchip" id="qTrabajo">💼 Trabajo</button>
   <button class="qchip" id="qFav">⭐ Favoritos</button>
+  <button class="qchip hidden" id="qPark">🅿️ Mi coche</button>
   <button class="qchip" id="qGas">⛽ Gasolineras</button>
+  <button class="qchip" id="qStats">📊 Viajes</button>
 </div>
 
+<div id="side">
 <!-- Indicación de la próxima maniobra (navegando) -->
 <div id="banner" class="hidden">
   <div id="bArrow">⬆</div>
@@ -56,21 +59,12 @@
   <div class="tBar"><div id="tFill"></div></div>
 </div>
 
-<!-- Velocímetro -->
-<div id="speed"><div id="spdVal">0</div><div class="spdU">km/h</div></div>
-<div id="limit" class="hidden">50</div>
-<div id="wx" class="hidden"></div>
-
-<!-- Botones laterales -->
-<div id="fabs">
-  <button id="btnSet2" class="fab hidden" title="Ajustes">⚙️</button>
-  <button id="btnGas" class="fab hidden" title="Gasolineras">⛽</button>
-  <button id="btnTraffic" class="fab" title="Tráfico">🚦</button>
-  <button id="btnLayers" class="fab" title="Capas">🗺️</button>
-  <button id="btnReport" class="fab big warn" title="Avisar">⚠️</button>
+<!-- Aviso genérico (retraso, aparcamiento…) -->
+<div id="notice" class="hidden">
+  <div class="apTop"><div class="apIco" id="nIco">⏱️</div><div class="apTxt"><div id="nTitle"></div><div id="nSub"></div></div></div>
+  <div class="apBtns"><button id="nNo" class="btn alt">Cerrar</button><button id="nYes" class="btn">Avisar</button></div>
 </div>
-<button id="btnRecenter" class="pill hidden">◎ Recentrar</button>
-
+<button id="parkPill" class="hidden">🅿️ <span id="parkN">0</span></button>
 <!-- Propuesta de ruta más rápida -->
 <div id="altPrompt" class="hidden">
   <div class="apTop"><div class="apIco">↪️</div><div class="apTxt"><div id="apTitle">Ruta 6 min más rápida</div><div id="apSub"></div></div></div>
@@ -90,6 +84,23 @@
   </div>
   <button id="btnRoutes" class="round" title="Vista general">🧭</button>
 </div>
+
+</div>
+
+<!-- Velocímetro -->
+<div id="speed"><div id="spdVal">0</div><div class="spdU">km/h</div></div>
+<div id="limit" class="hidden">50</div>
+<div id="wx" class="hidden"></div>
+
+<!-- Botones laterales -->
+<div id="fabs">
+  <button id="btnSet2" class="fab hidden" title="Ajustes">⚙️</button>
+  <button id="btnGas" class="fab hidden" title="Gasolineras">⛽</button>
+  <button id="btnTraffic" class="fab" title="Tráfico">🚦</button>
+  <button id="btnLayers" class="fab" title="Capas">🗺️</button>
+  <button id="btnReport" class="fab big warn" title="Avisar">⚠️</button>
+</div>
+<button id="btnRecenter" class="pill hidden">◎ Recentrar</button>
 
 <!-- Hoja inferior genérica -->
 <div id="sheetBg" class="hidden"></div>

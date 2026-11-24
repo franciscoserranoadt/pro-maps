@@ -211,3 +211,50 @@ body.lanes.tramo #alert{top:calc(326px + var(--safe-t))}
 .col{width:40px;height:40px;border-radius:50%;border:3px solid transparent}
 .col.sel{border-color:#fff}
 .sec{font-size:14px;font-weight:800;color:var(--cyan);margin:18px 2px 2px;text-transform:uppercase;letter-spacing:.5px}
+
+/* Panel lateral: en vertical no existe (los elementos flotan sobre el mapa) */
+#side{display:contents}
+/* Aviso genérico */
+#notice{position:absolute;z-index:9;left:8px;right:8px;max-width:560px;bottom:calc(98px + var(--safe-b));background:#0d2f5c;
+  border:3px solid #64b5f6;border-radius:20px;padding:12px 14px;box-shadow:0 8px 26px rgba(0,0,0,.6)}
+body:not(.nav) #notice{bottom:calc(110px + var(--safe-b))}
+body.nav #notice{bottom:calc(136px + var(--safe-b))}
+#nTitle{font-size:19px;font-weight:800}
+#nSub{font-size:14px;color:#cfe3ff;margin-top:2px}
+#notice #nYes{background:#1a73e8}
+/* Parkings cerca del destino: botón pequeño */
+#parkPill{position:absolute;z-index:6;right:12px;top:calc(124px + var(--safe-t));background:#1565c0;color:#fff;border-radius:22px;
+  padding:8px 12px;font-size:16px;font-weight:800;box-shadow:0 3px 10px rgba(0,0,0,.45)}
+body.lanes #parkPill{top:calc(196px + var(--safe-t))}
+/* Marcador del coche aparcado */
+.parkMk{width:36px;height:36px;border-radius:9px;background:#1565c0;color:#fff;border:3px solid #fff;display:flex;align-items:center;
+  justify-content:center;font-weight:900;font-size:20px;box-shadow:0 2px 8px rgba(0,0,0,.5)}
+/* Estadísticas */
+.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:12px}
+.stat{background:var(--panel2);border-radius:14px;padding:12px}
+.stat b{display:block;font-size:22px}
+.stat span{font-size:13px;color:var(--sub)}
+.code{font-size:30px;font-weight:900;letter-spacing:4px;text-align:center;background:var(--panel2);border-radius:14px;padding:14px;margin:8px 0}
+
+/* ===== Pantalla del coche en horizontal (Junsun): indicaciones a la izquierda, mapa a la derecha ===== */
+@media (orientation: landscape) and (min-width: 700px) {
+  body.nav #map, body.nav #fx{left:36%;width:64%}
+  body.nav #side{display:flex;flex-direction:column;gap:8px;position:absolute;z-index:8;left:0;top:0;bottom:0;width:36%;
+    padding:10px 10px calc(10px + var(--safe-b));background:var(--bg);box-shadow:4px 0 16px rgba(0,0,0,.5);overflow:hidden}
+  body.nav #side > *{position:relative!important;left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;
+    max-width:none!important;width:auto;margin:0;flex:none}
+  body.nav #banner{border-radius:16px;padding:10px 12px}
+  body.nav #bArrow{font-size:60px;width:70px}
+  body.nav #bDist{font-size:36px}
+  body.nav #lanes{border-radius:14px}
+  body.nav #alert,body.nav #tramo{border-width:3px}
+  body.nav #routeBar{height:34px;margin:auto 8px 0!important}
+  body.nav #navBar{border-radius:16px;padding:10px 12px}
+  body.nav #parkPill{align-self:flex-start}
+  body.nav #speed{left:calc(36% + 14px);bottom:calc(18px + var(--safe-b))}
+  body.nav #limit{left:calc(36% + 96px);bottom:calc(22px + var(--safe-b))}
+  body.nav #wx{left:calc(36% + 14px);bottom:calc(102px + var(--safe-b))}
+  body.nav #fabs{bottom:calc(18px + var(--safe-b));flex-direction:row-reverse;align-items:flex-end}
+  body.nav .pill{left:68%;bottom:calc(26px + var(--safe-b))}
+  body.nav #bThen{position:static;display:inline-block;border-radius:10px;margin-top:6px}
+}
