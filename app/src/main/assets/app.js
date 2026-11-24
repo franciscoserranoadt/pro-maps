@@ -345,6 +345,18 @@ async function boot() {
     if (preview) selectRoute(f.properties.i); else if (navigating) altSheet(+f.properties.i);
   });
   map.on('mouseenter', 'pois', () => map.getCanvas().style.cursor = 'pointer');
+  map.on('click', e => {
+    const own = ['pois', 'gas', 'parkings', 'routeAltHit', 'haz'].filter(id => map.getLayer(id));
+    if (own.length && map.queryRenderedFeatures(e.point, { layers: own }).length) return; // ya lo atiende su propia capa
+    const box = [[e.point.x - 14, e.point.y - 14], [e.point.x + 14, e.point.y + 14]];
+    const poiLayers = (map.getStyle().layers || []).filter(l => l.type === 'symbol' && l['source-layer'] === 'poi').map(l => l.id);
+    if (!poiLayers.length) return;
+    const f = map.queryRenderedFeatures(box, { layers: poiLayers }).find(x => x.properties && x.properties.name);
+    if (!f) return;
+    const pr = f.properties, c = f.geometry.coordinates;
+    const kind = (POI_KIND[pr.subclass] || POI_KIND[pr.class] || '');
+    placeMenu([c[0], c[1]], pr['name:es'] || pr.name, kind);
+  });
   map.on('click', 'parkings', e => { const f = e.features && e.features[0]; if (f) showParking(+f.properties.i); });
   map.on('click', 'gas', e => { const f = e.features && e.features[0]; if (f) showGas(f.properties.id); });
   setupLongPress();
@@ -418,8 +430,21 @@ function brightenDark() {
     } catch (e) { }
   }
 }
+/** En el mapa oscuro, todos los textos en claro con borde oscuro para que se lean */
+function lightLabels() {
+  if (curStyle !== 'dark') return;
+  for (const l of map.getStyle().layers || []) {
+    if (l.type !== 'symbol' || !l.layout || !l.layout['text-field']) continue;
+    try {
+      map.setPaintProperty(l.id, 'text-color', '#e8eef7');
+      map.setPaintProperty(l.id, 'text-halo-color', 'rgba(15,22,36,0.9)');
+      map.setPaintProperty(l.id, 'text-halo-width', 1.6);
+    } catch (e) { }
+  }
+}
 function onStyleLoad() {
   brightenDark();
+  lightLabels();
   for (const k in CAT) if (!map.hasImage('i_' + k)) map.addImage('i_' + k, makeIcon(CAT[k].e, CAT[k].c), { pixelRatio: 2 });
   const empty = { type: 'FeatureCollection', features: [] };
   map.addSource('route', { type: 'geojson', data: empty });
@@ -527,15 +552,17 @@ function setupLongPress() {
   map.on('touchend', cancel); map.on('touchcancel', cancel); map.on('movestart', e => { if (e.originalEvent) cancel(); });
   map.on('contextmenu', e => placeMenu([e.lngLat.lng, e.lngLat.lat]));
 }
-function placeMenu(pos) {
-  const name = 'Punto del mapa';
-  openSheet('<div class="sTitle">📍 Este punto</div><div class="sSub">' + pos[1].toFixed(5) + ', ' + pos[0].toFixed(5) + '</div>' +
+function placeMenu(pos, title, sub) {
+  const name = title || 'Punto del mapa';
+  openSheet('<div class="sTitle">📍 ' + esc(title || 'Este punto') + '</div><div class="sSub">' + (sub ? esc(sub) : pos[1].toFixed(5) + ', ' + pos[0].toFixed(5)) + '</div>' +
     '<button class="btn" id="pmGo">🚗 Ir aquí</button>' +
     '<button class="btn alt" id="pmRep">⚠️ Avisar de algo aquí</button>' +
     '<button class="btn alt" id="pmPark">🅿️ He aparcado aquí</button>' +
+    (title ? '<button class="btn alt" id="pmFav">⭐ Guardar en favoritos</button>' : '') +
     '<button class="btn alt" id="pmHome">🏠 Guardar como Casa</button>' +
     '<button class="btn alt" id="pmWork">💼 Guardar como Trabajo</button>');
-  $('#pmGo').onclick = () => { closeSheet(); goTo({ name, lon: pos[0], lat: pos[1] }); };
+  $('#pmGo').onclick = () => { closeSheet(); goTo({ name, sub: sub || '', lon: pos[0], lat: pos[1] }); };
+  if ($('#pmFav')) $('#pmFav').onclick = () => { closeSheet(); addFavorite({ name, sub: sub || '', lon: pos[0], lat: pos[1] }); };
   $('#pmRep').onclick = () => reportSheet(pos);
   $('#pmPark').onclick = () => { closeSheet(); savePark(pos, true); };
   $('#pmHome').onclick = () => { setFav('casa', { name: 'Casa', lon: pos[0], lat: pos[1] }); closeSheet(); };
@@ -1573,6 +1600,12 @@ const POI_ICON = { cafe: '☕', bar: '🍺', beer: '🍺', restaurant: '🍴', f
   college: '🎓', library: '📚', cinema: '🎬', theatre: '🎭', museum: '🏛️', hotel: '🏨', lodging: '🏨', place_of_worship: '⛪', police: '👮',
   post: '✉️', town_hall: '🏛️', park: '🌳', playground: '🛝', sports_centre: '🏟️', pitch: '⚽', swimming: '🏊', hairdresser: '💇', car: '🚗',
   car_repair: '🔧', bus: '🚌', railway: '🚆', subway: '🚇', attraction: '📍' };
+const POI_KIND = { cafe: 'Cafetería', bar: 'Bar', pub: 'Bar', beer: 'Bar', restaurant: 'Restaurante', fast_food: 'Comida rápida', ice_cream: 'Heladería',
+  bakery: 'Panadería', supermarket: 'Supermercado', grocery: 'Tienda de alimentación', clothes: 'Tienda de ropa', clothing_store: 'Tienda de ropa', shop: 'Tienda',
+  pharmacy: 'Farmacia', hospital: 'Hospital', doctors: 'Médico', bank: 'Banco', fuel: 'Gasolinera', parking: 'Aparcamiento', school: 'Colegio',
+  college: 'Centro de estudios', library: 'Biblioteca', cinema: 'Cine', theatre: 'Teatro', museum: 'Museo', hotel: 'Hotel', lodging: 'Alojamiento',
+  place_of_worship: 'Iglesia', police: 'Policía', post: 'Correos', town_hall: 'Ayuntamiento', park: 'Parque', playground: 'Parque infantil',
+  sports_centre: 'Polideportivo', hairdresser: 'Peluquería', car_repair: 'Taller', bus: 'Parada de autobús', railway: 'Estación de tren', subway: 'Metro' };
 function addPoiLabels(src) {
   const st = map.getStyle();
   const hasPoi = (st.layers || []).some(l => l.type === 'symbol' && l['source-layer'] === 'poi' && (!l.layout || l.layout.visibility !== 'none'));
@@ -1584,7 +1617,7 @@ function addPoiLabels(src) {
   const iconExpr = ['case'];
   for (const k in POI_ICON) { iconExpr.push(['any', ['==', cls, k], ['==', klass, k]], 'poi_' + k); }
   iconExpr.push('poi_dot');
-  map.addLayer({ id: 'poiNames', type: 'symbol', source: src, 'source-layer': 'poi', minzoom: 15.5,
+  map.addLayer({ id: 'poiNames', type: 'symbol', source: src, 'source-layer': 'poi', minzoom: 17,
     filter: ['has', 'name'],
     layout: { 'icon-image': iconExpr, 'icon-size': 0.9, 'text-field': ['coalesce', ['get', 'name:es'], ['get', 'name']], 'text-font': ['Noto Sans Regular'],
       'text-size': 12, 'text-anchor': 'left', 'text-offset': [0.9, 0], 'text-max-width': 9, 'symbol-sort-key': ['coalesce', ['get', 'rank'], 99],
