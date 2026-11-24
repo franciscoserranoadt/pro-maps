@@ -475,7 +475,9 @@ public class MainActivity extends Activity implements LocationListener {
                 new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
                         .setTitle("Hay una versión nueva")
                         .setMessage("Pro Maps v" + info.name + " ya está disponible (tienes la v"
-                                + Updater.installedName(this) + ").\n\nTus favoritos y avisos se mantienen.")
+                                + Updater.installedName(this) + ")."
+                                + (info.notes.isEmpty() ? "" : "\n\nNovedades:\n" + info.notes)
+                                + "\n\nTus favoritos y avisos se mantienen.")
                         .setPositiveButton("Actualizar", (d, w) -> startUpdate())
                         .setNeutralButton("Esta no", (d, w) -> prefs.edit().putInt("skipVersion", info.code).apply())
                         .setNegativeButton("Más tarde", null)

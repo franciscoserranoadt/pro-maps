@@ -43,6 +43,7 @@ jobs:
           VC=$(grep -oP "versionCode \K\d+" app/build.gradle)
           VN=$(grep -oP "versionName '\K[^']+" app/build.gradle)
           echo "$VC $VN" > version.txt
+          if [ -f CAMBIOS.txt ]; then cat CAMBIOS.txt >> version.txt; fi
           cat version.txt
 
       - uses: actions/upload-artifact@v4

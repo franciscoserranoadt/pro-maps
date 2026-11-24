@@ -22,7 +22,7 @@ const DEF = { voice: true, radars: true, semaforos: true, incid: true, reports: 
   b3d: true, wxfx: true, wxchip: true, trees: false, lamps: false, car: 'arrow', carColor: '#33ccff', lanes: true,
   label: 'c', zbe: true, zbeShow: true, zbeAvoid: false, parkNear: true, syncCode: '', darkLvl: 'mas',
   fatigue: true, hazards: true, curves: true, offlineRoute: true, routeType: 'fastest',
-  zoomLvl: 'cerca', autoZoom: true, overhead: true, persp: true, carSize: 'grande', syncSettings: true };
+  zoomLvl: 'cerca', autoZoom: true, overhead: true, persp: true, carSize: 'grande', syncSettings: true, sound: 'all', shadows: true };
 const cfg = Object.assign({}, DEF, store.get('cfg', {}));
 const saveCfg = () => store.set('cfg', cfg);
 
@@ -55,7 +55,7 @@ function postJSON(url, obj) {
 /* ====================== Voz, avisos y utilidades ====================== */
 let lastSay = '';
 function say(t, urgent) {
-  if (!cfg.voice || !t) return;
+  if (!cfg.voice || cfg.sound === 'off' || !t) return;
   lastSay = t;
   if (N) { urgent ? N.speakNow(t) : N.speak(t); }
   else if (window.speechSynthesis) {
@@ -63,7 +63,9 @@ function say(t, urgent) {
     const u = new SpeechSynthesisUtterance(t); u.lang = 'es-ES'; speechSynthesis.speak(u);
   }
 }
-const beep = k => { if (cfg.beep && N) N.beep(k || 1); };
+const beep = k => { if (cfg.beep && cfg.sound !== 'off' && N) N.beep(k || 1); };
+/** Indicaciones de la ruta (giros, llegada…): no suenan en el modo «solo avisos» */
+function sayNav(t, urgent) { if (cfg.sound === 'alerts') return; say(t, urgent); }
 const vib = ms => { if (N) N.vibrate(ms || 200); };
 let toastT;
 function toast(m, ms) {
@@ -383,7 +385,8 @@ async function boot() {
   setTimeout(pushState, 9000);
   addEventListener('resize', () => map && setTimeout(() => map.resize(), 100));
   setInterval(() => { const every = navigating ? 180000 : 300000; if (Date.now() - ttAt > every) loadTT(); }, 30000); setInterval(() => loadFuel(false), 60 * 60000);
-  setInterval(() => { cleanReports(); refreshPois(); applyStyle(false); }, 5 * 60000);
+  setInterval(() => { cleanReports(); refreshPois(); applyStyle(false); updateLight(); }, 5 * 60000);
+  map.on('rotate', () => carShadow());
   if (!N && navigator.geolocation) {
     navigator.geolocation.watchPosition(p => onGps(p.coords.latitude, p.coords.longitude, p.coords.speed == null ? -1 : p.coords.speed,
       p.coords.heading == null ? -1 : p.coords.heading, p.coords.accuracy, 1), null, { enableHighAccuracy: true });
@@ -954,7 +957,7 @@ function startNav() {
   nav.zbeSaid = false; nav.parkAsked = false;
   if (cfg.offlineRoute) setTimeout(() => prefetchRoute(active, false), 3000);
   const first = active.steps[0];
-  say((first ? first.pre + '. ' : '') + (!active.walk && active.nCam ? 'Hay ' + active.nCam + (active.nCam === 1 ? ' radar' : ' radares') + ' en la ruta.' : ''), true);
+  sayNav((first ? first.pre + '. ' : '') + (!active.walk && active.nCam ? 'Hay ' + active.nCam + (active.nCam === 1 ? ' radar' : ' radares') + ' en la ruta.' : ''), true);
   if (me) navUpdate();
 }
 function stopNav(silent) {
@@ -975,7 +978,7 @@ $('#btnRoutes').onclick = () => { if (active) stepsSheet(active, true); };
 async function reroute() {
   nav.lastReroute = Date.now();
   if (!dest || !me) return;
-  say('Recalculando', true);
+  sayNav('Recalculando', true);
   try {
     const rs = await calcRoutes(me);
     if (!rs.length || !navigating) return;
@@ -1016,7 +1019,7 @@ function navUpdate() {
   // 2) Próxima maniobra (y paradas intermedias superadas)
   while (nav.step < r.steps.length - 1 && r.steps[nav.step].at < nav.along + 8) {
     if (r.steps[nav.step].kind === 'stop' && stops.length) {
-      const p = stops.shift(); say('Has llegado a tu parada: ' + p.name + '. Cuando quieras, seguimos.', true); toast('📍 Parada: ' + p.name);
+      const p = stops.shift(); sayNav('Has llegado a tu parada: ' + p.name + '. Cuando quieras, seguimos.', true); toast('📍 Parada: ' + p.name);
     }
     nav.step++;
   }
@@ -1041,20 +1044,20 @@ function navUpdate() {
   const legLen = nav.step > 0 ? st.at - r.steps[nav.step - 1].at : st.at;
   if (st.kind === 'dest' && rest < (r.walk ? 20 : 40) && !nav.arrived) {
     nav.arrived = true;
-    if (r.walk && dest && dest.park) { say('Has llegado a tu coche', true); toast('🚗 Has llegado a tu coche'); clearPark(); }
-    else { say('Has llegado a tu destino', true); toast('🏁 Has llegado'); }
+    if (r.walk && dest && dest.park) { sayNav('Has llegado a tu coche', true); toast('🚗 Has llegado a tu coche'); clearPark(); }
+    else { sayNav('Has llegado a tu destino', true); toast('🏁 Has llegado'); }
     const walked = r.walk;
     setTimeout(() => { stopNav(true); if (!walked) arrivedPark(); }, 4000); return;
   }
   navExtras(r, rest);
   if (dm <= far && dm > near + 80 && legLen > far * 0.6 && !nav.said['sf' + nav.step]) {
     nav.said['sf' + nav.step] = 1;
-    say(st.kind === 'dest' ? 'En ' + sayDist(dm) + ' llegarás a tu destino' : st.kind === 'stop' ? 'En ' + sayDist(dm) + ' llegarás a tu parada'
+    sayNav(st.kind === 'dest' ? 'En ' + sayDist(dm) + ' llegarás a tu destino' : st.kind === 'stop' ? 'En ' + sayDist(dm) + ' llegarás a tu parada'
       : 'En ' + sayDist(dm) + ', ' + lowFirst(st.alert));
   }
   if (dm <= near && !nav.said['sn' + nav.step]) {
     nav.said['sn' + nav.step] = 1; nav.said['sf' + nav.step] = 1;
-    say(st.pre + (nx && nx.at - st.at < 120 && nx.kind !== 'straight' ? ' Y después, ' + lowFirst(nx.alert) : ''));
+    sayNav(st.pre + (nx && nx.at - st.at < 120 && nx.kind !== 'straight' ? ' Y después, ' + lowFirst(nx.alert) : ''));
   }
 }
 
@@ -1146,6 +1149,7 @@ window.onGps = (lat, lon, spd, brg, acc, isGps) => {
   me = pos;
   if (!map) return;
   meMarker.setLngLat(pos); meMarker.setRotation(heading);
+  if (!onGps.shAt || now - onGps.shAt > 3000) { onGps.shAt = now; carShadow(); }
   $('#spdVal').textContent = Math.round(speedMs * 3.6);
   if (navigating) { navUpdate(); renderRouteBar(); }
   updateTramo();
@@ -1278,7 +1282,8 @@ function settingsPage(k) {
   if (k === 'ruta') h +=
     sel('routeType', '🧭 Tipo de ruta por defecto', [['fastest', '⚡ La más rápida'], ['shortest', '📏 La más corta']], 'En cada viaje también puedes cambiarla al ver las rutas') +
     tg('tolls', '💶 Evitar peajes') + tg('highways', '🛣️ Evitar autopistas y autovías') +
-    tg('voice', '🔊 Indicaciones por voz') + tg('beep', '🔔 Pitidos en radares y exceso de velocidad') +
+    sel('sound', '🔊 Sonido (también con el botón del mapa)', [['all', '🔊 Voz y avisos'], ['alerts', '🔔 Solo avisos'], ['off', '🔇 Sin sonido']]) +
+    tg('voice', '🗣️ Voz activada') + tg('beep', '🔔 Pitidos en radares y exceso de velocidad') +
     tg('lanes', '🛣️ Carriles al acercarte a un desvío', 'Con TomTom o con los datos de OpenStreetMap') +
     btn('bTest', '🔊 Probar la voz');
   if (k === 'avisos') h +=
@@ -1300,6 +1305,7 @@ function settingsPage(k) {
     tg('autoZoom', '🚀 Zoom automático', 'A más velocidad se aleja y a menos velocidad se acerca') +
     tg('overhead', '⬇️ Vista desde arriba en cruces y rotondas', 'Al acercarte a un giro, rotonda o salida la cámara se pone cenital') +
     tg('persp', '📐 Perspectiva inclinada (3D)', 'Si lo quitas, el mapa siempre se ve desde arriba') +
+    tg('shadows', '🌗 Sombras según la hora', 'De edificios y del coche: sol, amanecer, atardecer o luz de luna') +
     sel('carSize', '🚗 Tamaño del icono del vehículo', [['normal', 'Normal'], ['grande', 'Grande'], ['muygrande', 'Muy grande']]) +
     '<div class="sec">Mapa</div>' +
     sel('style', '🗺️ Tipo de mapa', [['auto', 'Automático (claro de día, oscuro de noche)'], ['light', 'Claro'], ['dark', 'Oscuro'], ['soft', 'Suave'], ['sat', 'Satélite España (IGN)'], ['satw', 'Satélite mundial']]) +
@@ -1348,6 +1354,7 @@ function settingsPage(k) {
     if (key === 'style' || key === 'darkLvl') applyStyle(true);
     if (key === 'fuel') refreshGas();
     if (key === 'carSize') applyCar();
+    if (key === 'sound') setSound(cfg.sound);
     if (key === 'zoomLvl') { camZ = null; if (follow && me) moveCamera(); }
   });
   // Botones
@@ -1568,6 +1575,7 @@ function addLookLayers() {
     const ls = map.getStyle().layers || [], bi = ls.findIndex(l => l.id === 'b3d');
     ls.slice(0, bi).filter(l => l.type === 'symbol').forEach(l => { try { before3d ? map.moveLayer(l.id, before3d) : map.moveLayer(l.id); } catch (e) { } });
     addPoiLabels(src);
+    addShadowLayers(src);
   }
   // Zonas de Bajas Emisiones
   map.addSource('zbe', { type: 'geojson', data: zbeGeo() });
@@ -1679,6 +1687,7 @@ async function maybeLoadNature() {
 function lookChanged(k) {
   if (!map) return;
   if (k === 'b3d' && map.getLayer('b3d')) map.setLayoutProperty('b3d', 'visibility', cfg.b3d ? 'visible' : 'none');
+  if (k === 'b3d' || k === 'shadows') updateLight();
   if (k === 'trees' && map.getLayer('trees')) { map.setLayoutProperty('trees', 'visibility', cfg.trees ? 'visible' : 'none'); nature.c = null; nature.at = 0; }
   if (k === 'lamps' && map.getLayer('lamps')) { ['lamps', 'lampGlow'].forEach(id => map.setLayoutProperty(id, 'visibility', cfg.lamps ? 'visible' : 'none')); nature.c = null; nature.at = 0; }
   if ((k === 'trees' || k === 'lamps') && (cfg.trees || cfg.lamps)) { if (map.getZoom() < 15) toast('Acerca el mapa para ver ' + (k === 'trees' ? 'los árboles' : 'las farolas')); maybeLoadNature(); }
@@ -1724,6 +1733,7 @@ function applyCar() {
   const px = { normal: 46, grande: 62, muygrande: 80 }[cfg.carSize] || 46;
   el.style.width = el.style.height = px + 'px';
   el.querySelector('svg').style.width = el.querySelector('svg').style.height = px + 'px';
+  if (typeof carShadow === 'function' && map) carShadow();
 }
 
 /* ====================== Tiempo real (Open-Meteo) y efectos ====================== */
@@ -1984,6 +1994,7 @@ function applyRemoteState(parts) {
   ['zbeFill', 'zbeLine'].forEach(id => map && map.getLayer(id) && map.setLayoutProperty(id, 'visibility', cfg.zbeShow ? 'visible' : 'none'));
   ['b3d', 'trees', 'lamps'].forEach(k => lookChanged(k));
   if (cfg.tomtom && cfg.tomtom !== oldKey) loadTT();
+  $('#btnSound').textContent = (SOUND[cfg.sound] || SOUND.all).i; updateLight();
   toast('⚙️ Ajustes y favoritos actualizados desde el otro dispositivo', 4500);
 }
 
@@ -2285,8 +2296,9 @@ window.onVoice = async text => {
     const rest = Math.max(0, active.total - nav.along);
     return say('Llegas a las ' + new Date(etaNow()).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) + '. Te quedan ' + sayDist(rest) + ', unos ' + Math.max(1, Math.round(active.time * rest / active.total / 60)) + ' minutos');
   }
-  if (/(silencio|calla|sin voz|quita la voz|desactiva la voz)/.test(t)) { say('Voz desactivada'); setTimeout(() => { cfg.voice = false; saveCfg(); }, 50); return; }
-  if (/(activa|pon|enciende) (la )?voz/.test(t)) { cfg.voice = true; saveCfg(); return say('Voz activada'); }
+  if (/(silencio|calla|sin voz|quita la voz|desactiva la voz|sin sonido)/.test(t)) { say('Sonido desactivado'); setTimeout(() => setSound('off'), 50); return; }
+  if (/solo (los )?avisos/.test(t)) { setSound('alerts'); return say('Solo avisos'); }
+  if (/(activa|pon|enciende) (la )?(voz|sonido)/.test(t)) { setSound('all'); return say('Voz activada'); }
   if (/(comparte|compartir|envia|manda).*(llegada|hora|ubicacion)/.test(t)) { if (navigating) shareEta(false); else say('Primero empieza una ruta'); return; }
   if (/(donde|llevame|ir|vamos).*(mi coche|el coche|aparcado|aparque)/.test(t)) {
     if (!park) return say('No tengo guardado dónde aparcaste');
@@ -2511,6 +2523,97 @@ function cacheSheet() {
   $('#ccDel').onclick = () => { if (N) N.clearCache(); toast('Mapa guardado borrado'); closeSheet(); };
 }
 
+
+/* ====================== Sonido desde el mapa: voz y avisos / solo avisos / silencio ====================== */
+const SOUND = { all: { i: '🔊', n: 'Voz y avisos', d: 'Te guía por voz y te avisa de radares e incidencias' },
+  alerts: { i: '🔔', n: 'Solo avisos', d: 'Sin indicaciones de giros; solo radares, incidencias y velocidad' },
+  off: { i: '🔇', n: 'Sin sonido', d: 'Ni voz ni pitidos' } };
+function setSound(m) {
+  cfg.sound = m; if (m !== 'off') cfg.voice = true; saveCfg();
+  $('#btnSound').textContent = SOUND[m].i;
+  if (m === 'off' && N) N.stopSpeak();
+}
+$('#btnSound').textContent = (SOUND[cfg.sound] || SOUND.all).i;
+$('#btnSound').onclick = () => {
+  const next = { all: 'alerts', alerts: 'off', off: 'all' }[cfg.sound] || 'alerts';
+  setSound(next);
+  toast(SOUND[next].i + ' ' + SOUND[next].n + ' · ' + SOUND[next].d, 3500);
+  if (next !== 'off') say(next === 'all' ? 'Voz y avisos' : 'Solo avisos', true);
+};
+
+/* ====================== Tipo de mapa desde el mapa ====================== */
+const STYLE_OPTS = [['auto', '🌓', 'Automático'], ['light', '☀️', 'Claro'], ['dark', '🌙', 'Oscuro'], ['soft', '🌫️', 'Suave'], ['sat', '🛰️', 'Satélite España'], ['satw', '🌍', 'Satélite mundial']];
+$('#btnStyle').onclick = function styleSheet() {
+  openSheet('<div class="sTitle">🗺️ Tipo de mapa</div><div class="styleGrid">' + STYLE_OPTS.map(([k, i, n]) =>
+    '<button class="stOpt' + (cfg.style === k ? ' sel' : '') + '" data-st="' + k + '"><b>' + i + '</b>' + n + '</button>').join('') + '</div>' +
+    '<div class="set"><label>🏙️ Edificios en 3D</label><input type="checkbox" data-k="b3d"' + (cfg.b3d ? ' checked' : '') + '></div>' +
+    '<div class="set"><label>🌗 Sombras según la hora<small>Sol, amanecer, atardecer o luz de luna</small></label><input type="checkbox" data-k="shadows"' + (cfg.shadows ? ' checked' : '') + '></div>');
+  document.querySelectorAll('#sheetBody [data-st]').forEach(b => b.onclick = () => { cfg.style = b.dataset.st; saveCfg(); applyStyle(true); styleSheet(); });
+  document.querySelectorAll('#sheetBody input[data-k]').forEach(i => i.onchange = () => { cfg[i.dataset.k] = i.checked; saveCfg(); lookChanged(i.dataset.k); });
+};
+
+/* ====================== Sombras y luz según la hora (sol, amanecer, atardecer, luna) ====================== */
+function sunPosition(date, lat, lon) {
+  const dayMs = 864e5, J1970 = 2440588, J2000 = 2451545, e = rad * 23.4397;
+  const d = date.valueOf() / dayMs - 0.5 + J1970 - J2000;
+  const M = rad * (357.5291 + 0.98560028 * d);
+  const C = rad * (1.9148 * Math.sin(M) + 0.02 * Math.sin(2 * M) + 0.0003 * Math.sin(3 * M));
+  const L = M + C + rad * 102.9372 + Math.PI;
+  const dec = Math.asin(Math.sin(e) * Math.sin(L)), ra = Math.atan2(Math.sin(L) * Math.cos(e), Math.cos(L));
+  const lw = rad * -lon, phi = rad * lat, H = rad * (280.16 + 360.9856235 * d) - lw - ra;
+  const alt = Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(H));
+  const az = Math.atan2(Math.sin(H), Math.cos(H) * Math.sin(phi) - Math.tan(dec) * Math.cos(phi)); // desde el sur, hacia el oeste
+  return { alt: alt / rad, bearing: (az / rad + 180 + 360) % 360 }; // bearing: desde el norte, en grados
+}
+/** Luz actual: de dónde viene, su altura, color y fuerza de la sombra */
+function lightNow() {
+  const p = me || store.get('lastPos', [-3.8249, 40.3459]);
+  const s = sunPosition(new Date(), p[1], p[0]);
+  if (s.alt > 12) return { phase: 'sol', bearing: s.bearing, alt: s.alt, color: '#ffffff', intensity: 0.45, shadow: 0.2, tint: '#000000' };
+  if (s.alt > -4) return { phase: s.bearing < 180 ? 'amanecer' : 'atardecer', bearing: s.bearing, alt: Math.max(s.alt, 5), color: '#ffc58f', intensity: 0.5, shadow: 0.26, tint: '#2b1606' };
+  // de noche: luz de luna aproximada, suave y azulada, desde el lado contrario al sol
+  return { phase: 'luna', bearing: (s.bearing + 180) % 360, alt: 35, color: '#9fb4e8', intensity: 0.3, shadow: 0.1, tint: '#050a1a' };
+}
+const SHADOW_BINS = [[0, 12, 8], [12, 30, 20], [30, 9999, 45]]; // alturas (m) y altura típica de cada grupo
+function addShadowLayers(src) {
+  if (!src) return;
+  SHADOW_BINS.forEach((b, i) => {
+    map.addLayer({ id: 'bshadow' + i, type: 'fill', source: src, 'source-layer': 'building', minzoom: 15,
+      filter: ['all', ['!', ['to-boolean', ['get', 'hide_3d']]], ['>=', ['coalesce', ['get', 'render_height'], 6], b[0]], ['<', ['coalesce', ['get', 'render_height'], 6], b[1]]],
+      layout: { visibility: cfg.shadows && cfg.b3d ? 'visible' : 'none' },
+      paint: { 'fill-color': '#000', 'fill-opacity': 0.2, 'fill-translate-anchor': 'map', 'fill-translate': [0, 0], 'fill-antialias': false } }, 'b3d');
+  });
+  updateLight();
+}
+function updateLight() {
+  if (!map || !map.getStyle()) return;
+  const L = lightNow();
+  try { map.setLight({ anchor: 'map', color: L.color, intensity: L.intensity, position: [1.2, L.bearing, Math.max(10, Math.min(80, 90 - L.alt))] }); } catch (e) { }
+  const away = (L.bearing + 180) * rad, mPerPx16 = 156543.03 * Math.cos(((me || [0, 40])[1]) * rad) / 65536;
+  SHADOW_BINS.forEach((b, i) => {
+    const id = 'bshadow' + i; if (!map.getLayer(id)) return;
+    const len = Math.min(b[2] / Math.tan(Math.max(L.alt, 5) * rad), b[2] * 4) / mPerPx16; // en píxeles a zoom 16
+    const dx = Math.sin(away) * len, dy = -Math.cos(away) * len;
+    map.setPaintProperty(id, 'fill-translate', ['interpolate', ['exponential', 2], ['zoom'], 15, ['literal', [dx / 2, dy / 2]], 20, ['literal', [dx * 16, dy * 16]]]);
+    map.setPaintProperty(id, 'fill-color', L.tint);
+    map.setPaintProperty(id, 'fill-opacity', L.shadow);
+    map.setLayoutProperty(id, 'visibility', cfg.shadows && cfg.b3d ? 'visible' : 'none');
+  });
+  carShadow(L);
+}
+/** Sombra del coche: hacia el lado contrario de la luz, girada según cómo esté orientado el mapa */
+function carShadow(L) {
+  const el = document.getElementById('meIcon'); if (!el) return;
+  const svg = el.querySelector('svg'); if (!svg) return;
+  if (!cfg.shadows) { svg.style.filter = ''; return; }
+  L = L || lightNow();
+  const ang = ((L.bearing + 180) - (map ? map.getBearing() : 0) - heading) * rad; // el icono ya va girado con tu rumbo
+  const len = Math.min(14, 3 + 8 / Math.tan(Math.max(L.alt, 8) * rad));
+  const dx = (Math.sin(ang) * len).toFixed(1), dy = (-Math.cos(ang) * len).toFixed(1);
+  const a = L.phase === 'luna' ? 0.35 : L.phase === 'sol' ? 0.45 : 0.55;
+  svg.style.filter = 'drop-shadow(' + dx + 'px ' + dy + 'px 3px rgba(0,0,0,' + a + '))';
+}
+
 /* ====================== Rutas alternativas durante el viaje ====================== */
 /** Calcula dónde se separa «alt» de la ruta activa. Devuelve null si es casi igual. */
 function markDivergence(alt, alongNow) {
@@ -2535,7 +2638,7 @@ function switchToAlt(a) {
   Object.assign(nav, { idx: 0, step: 0, off: 0, along: 0, lastReroute: Date.now() });
   for (const k in nav.said) if (k.startsWith('s')) delete nav.said[k];
   navAlts = navAlts.concat([markDivergence(old, 0)]).filter(Boolean);
-  say('Ruta cambiada', true); drawRoutes(); navUpdate();
+  sayNav('Ruta cambiada', true); drawRoutes(); navUpdate();
   setTimeout(refreshAlts, 20000);
 }
 

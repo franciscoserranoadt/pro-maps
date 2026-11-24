@@ -1,0 +1,4 @@
+• Botón 🔊 en el mapa: voz y avisos / solo avisos / sin sonido.
+• Botón 🗺️ en el mapa para cambiar el tipo de mapa (el de capas pasa a ser 🧩).
+• Sombras de edificios y del coche según la hora: sol, amanecer, atardecer y luz de luna.
+• La ventana de nueva versión muestra las novedades.

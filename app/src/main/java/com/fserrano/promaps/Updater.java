@@ -24,7 +24,8 @@ final class Updater {
     static final class Info {
         final int code;
         final String name;
-        Info(int code, String name) { this.code = code; this.name = name; }
+        final String notes;
+        Info(int code, String name, String notes) { this.code = code; this.name = name; this.notes = notes; }
     }
 
     private static final OkHttpClient HTTP = new OkHttpClient.Builder()
@@ -55,10 +56,14 @@ final class Updater {
         Request req = new Request.Builder().url(BASE + "version.txt").header("Cache-Control", "no-cache").build();
         try (Response r = HTTP.newCall(req).execute()) {
             if (!r.isSuccessful() || r.body() == null) return null;
-            String[] parts = r.body().string().trim().split("\\s+");
+            String txt = r.body().string().trim();
+            int nl = txt.indexOf('\n');
+            String first = nl >= 0 ? txt.substring(0, nl) : txt;
+            String notes = nl >= 0 ? txt.substring(nl + 1).trim() : "";
+            String[] parts = first.trim().split("\\s+");
             int code = Integer.parseInt(parts[0]);
             String name = parts.length > 1 ? parts[1] : String.valueOf(code);
-            return new Info(code, name);
+            return new Info(code, name, notes);
         } catch (Exception e) {
             return null;
         }
