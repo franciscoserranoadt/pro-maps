@@ -13,7 +13,7 @@ const DEF = { voice: true, radars: true, semaforos: true, incid: true, reports: 
   tomtom: '', style: 'auto', tolls: false, highways: false, traffic: false,
   fuel: 'g95', gas: true, limit: true, limitWarn: true, ttinc: true,
   b3d: true, wxfx: true, wxchip: true, trees: false, lamps: false, car: 'arrow', carColor: '#33ccff', lanes: true,
-  label: 'c', zbe: true, zbeShow: true, zbeAvoid: false, parkNear: true, syncCode: '' };
+  label: 'c', zbe: true, zbeShow: true, zbeAvoid: false, parkNear: true, syncCode: '', darkLvl: 'mas' };
 const cfg = Object.assign({}, DEF, store.get('cfg', {}));
 const saveCfg = () => store.set('cfg', cfg);
 
@@ -371,7 +371,39 @@ function makeIcon(emoji, color, size) {
   return x.getImageData(0, 0, S, S);
 }
 
+/* Aclara el estilo oscuro (fondo, manzanas, calles) según el ajuste elegido */
+const colorCtx = document.createElement('canvas').getContext('2d');
+function parseColor(v) {
+  if (typeof v !== 'string' || /^(get|interpolate|linear|step|match|case|zoom|literal|exponential|coalesce|to-|==|!=|all|any|has|in|feature-state|var|let|rgb|rgba|hsl|hsla)$/.test(v)) return null;
+  colorCtx.fillStyle = '#010203'; colorCtx.fillStyle = v;
+  const out = colorCtx.fillStyle;
+  if (out === '#010203' && !/^#010203$/i.test(v)) return null;
+  let m = out.match(/^#([0-9a-f]{6})$/i);
+  if (m) { const n = parseInt(m[1], 16); return [n >> 16, (n >> 8) & 255, n & 255, 1]; }
+  m = out.match(/rgba?\(([^)]+)\)/); if (m) { const p = m[1].split(',').map(Number); return [p[0], p[1], p[2], p[3] == null ? 1 : p[3]]; }
+  return null;
+}
+function lightenVal(v, a, T) {
+  if (Array.isArray(v)) return v.map(x => lightenVal(x, a, T));
+  const c = parseColor(v); if (!c) return v;
+  const r = c.map((x, i) => i < 3 ? Math.round(x + (T[i] - x) * a) : x);
+  return 'rgba(' + r[0] + ',' + r[1] + ',' + r[2] + ',' + r[3] + ')';
+}
+function brightenDark() {
+  const a = { normal: 0, mas: 0.2, mucho: 0.36 }[cfg.darkLvl] || 0;
+  if (!a || curStyle !== 'dark' || SAT[cfg.style]) return;
+  const T = [128, 146, 176];
+  for (const l of map.getStyle().layers || []) {
+    const prop = { background: 'background-color', fill: 'fill-color', line: 'line-color' }[l.type];
+    if (!prop) continue;
+    try {
+      const v = map.getPaintProperty(l.id, prop);
+      if (v != null) map.setPaintProperty(l.id, prop, lightenVal(v, l.type === 'line' ? a * 1.25 : a, T));
+    } catch (e) { }
+  }
+}
 function onStyleLoad() {
+  brightenDark();
   for (const k in CAT) if (!map.hasImage('i_' + k)) map.addImage('i_' + k, makeIcon(CAT[k].e, CAT[k].c), { pixelRatio: 2 });
   const empty = { type: 'FeatureCollection', features: [] };
   map.addSource('route', { type: 'geojson', data: empty });
@@ -1048,8 +1080,10 @@ function moveCamera() {
   const z = navigating ? (kmh > 100 ? 15 : kmh > 70 ? 15.6 : kmh > 40 ? 16.3 : 17) : (kmh > 70 ? 14.8 : 15.8);
   const h = map.getCanvas().clientHeight;
   map.easeTo({ center: meMarker.getLngLat(), zoom: z, bearing: navigating || kmh > 8 ? heading : map.getBearing(), pitch: navigating ? 55 : (kmh > 8 ? 40 : 0),
-    padding: { top: navigating ? Math.round(h * 0.4) : 0, bottom: 0, left: 0, right: 0 }, duration: 950, easing: t => t });
+    padding: navigating && landscapeNav() ? { top: Math.round(h * 0.3), bottom: 0, left: Math.round(map.getCanvas().clientWidth * 0.36), right: 0 }
+      : { top: navigating ? Math.round(h * 0.4) : 0, bottom: 0, left: 0, right: 0 }, duration: 950, easing: t => t });
 }
+function landscapeNav() { return innerWidth > innerHeight && innerWidth >= 700; }
 function setFollow(on) {
   follow = on; $('#btnRecenter').classList.toggle('hidden', on || preview);
   if (on && me && map) moveCamera();
@@ -1118,8 +1152,10 @@ function settingsSheet() {
     '<div class="set"><label>🗺️ Tipo de mapa</label><select id="styleSel"><option value="auto">Automático (claro de día, oscuro de noche)</option>' +
     '<option value="light">Claro</option><option value="dark">Oscuro</option><option value="soft">Suave</option><option value="sat">Satélite España (IGN)</option>' +
     '<option value="satw">Satélite mundial</option></select></div>' +
+    '<div class="set"><label>🌙 Brillo del modo oscuro</label><select id="darkSel"><option value="normal">Oscuro</option><option value="mas">Más claro</option><option value="mucho">Mucho más claro</option></select></div>' +
     t('b3d', '🏙️ Edificios en 3D', 'Se ven al acercar el mapa e inclinarlo') +
     t('wxfx', '🌧️ Efectos del tiempo real', 'Lluvia, nieve, niebla o tormenta en pantalla si está pasando donde estás') +
+    '<div class="btnrow"><button class="btn alt" data-fx="rain">🌧️ Ver lluvia</button><button class="btn alt" data-fx="snow">❄️ Nieve</button><button class="btn alt" data-fx="fog">🌫️ Niebla</button><button class="btn alt" data-fx="storm">⛈️ Tormenta</button></div>' +
     t('wxchip', '🌡️ Mostrar el tiempo y la temperatura') +
     t('trees', '🌳 Árboles', 'De OpenStreetMap, al acercar mucho el mapa') +
     t('lamps', '💡 Farolas', 'De OpenStreetMap; de noche se iluminan') +
@@ -1150,6 +1186,12 @@ function settingsSheet() {
   $('#labelSel').onchange = e => { cfg.label = e.target.value; saveCfg(); };
   $('#bSync').onclick = syncSheet; $('#bStats').onclick = statsSheet;
   document.querySelectorAll('#sheetBody input[data-k=zbeShow]').forEach(i => i.addEventListener('change', () => ['zbeFill', 'zbeLine'].forEach(id => map.getLayer(id) && map.setLayoutProperty(id, 'visibility', cfg.zbeShow ? 'visible' : 'none'))));
+  $('#darkSel').value = cfg.darkLvl;
+  $('#darkSel').onchange = e => { cfg.darkLvl = e.target.value; saveCfg(); applyStyle(true); };
+  document.querySelectorAll('#sheetBody [data-fx]').forEach(b => b.onclick = () => {
+    closeSheet(); fx.set(b.dataset.fx, 1, 15); toast('Así se ve con ' + b.textContent.replace(/^\S+\s/, '').replace('Ver ', '').toLowerCase() + ' (10 segundos)');
+    clearTimeout(fx.demoT); fx.demoT = setTimeout(renderWeather, 10000);
+  });
   $('#styleSel').value = cfg.style;
   $('#styleSel').onchange = e => { cfg.style = e.target.value; saveCfg(); applyStyle(true); };
   $('#bCar').onclick = carSheet;
@@ -1237,7 +1279,7 @@ async function loadTT() {
 function renderRouteBar() {
   const el = $('#routeBar'); if (!navigating || !active) return;
   const r = active, T = r.total || 1, pct = v => Math.max(0, Math.min(100, v / T * 100)).toFixed(2) + '%';
-  let h = '<div class="rbTrack"></div>';
+  let h = '<div class="rbIn"><div class="rbTrack"></div>';
   // atascos y retenciones como tramos de color
   for (const o of r.pois || []) {
     if ((o.p.cat === 'retencion' || o.p.cat === 'corte') && o.end != null && o.end - o.at > 30 && o.end > nav.along) {
@@ -1256,7 +1298,7 @@ function renderRouteBar() {
     h += '<div class="rbIco" style="left:' + x.toFixed(2) + '%;background:' + CAT[o.p.cat].c + '">' + CAT[o.p.cat].e + '</div>';
   }
   for (const st of r.steps) if (st.kind === 'stop' && st.at > nav.along) h += '<div class="rbIco" style="left:' + pct(st.at) + ';background:#fff">📍</div>';
-  h += '<div class="rbEnd">🏁</div><div class="rbMe" style="left:' + pct(nav.along) + '"></div>';
+  h += '<div class="rbEnd">🏁</div><div class="rbMe" style="left:' + pct(nav.along) + '"></div></div>';
   el.innerHTML = h;
 }
 
