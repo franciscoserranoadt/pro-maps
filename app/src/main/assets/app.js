@@ -10,7 +10,8 @@ const store = {
   set(k, v) { try { localStorage.setItem('pn_' + k, JSON.stringify(v)); } catch (e) { } }
 };
 const DEF = { voice: true, radars: true, semaforos: true, incid: true, reports: true, beep: true,
-  tomtom: '', style: 'auto', tolls: false, highways: false, traffic: false };
+  tomtom: '', style: 'auto', tolls: false, highways: false, traffic: false,
+  fuel: 'g95', gas: true, limit: true, limitWarn: true };
 const cfg = Object.assign({}, DEF, store.get('cfg', {}));
 const saveCfg = () => store.set('cfg', cfg);
 
@@ -23,7 +24,7 @@ window.__net = (id, ok, body) => {
 function nativeCall(fn, url) {
   return new Promise((res, rej) => {
     const id = 'r' + (++reqN); pend[id] = { res, rej };
-    if (fn === 'dgt') N.dgt(id); else N.get(id, url);
+    if (fn === 'dgt') N.dgt(id); else if (fn === 'fuel') N.fuel(id); else N.get(id, url);
     setTimeout(() => { if (pend[id]) { delete pend[id]; rej(new Error('Tiempo agotado')); } }, 100000);
   });
 }
@@ -294,6 +295,7 @@ async function boot() {
   map.on('click', 'pois', e => { const f = e.features && e.features[0]; if (f) showPoi(f); });
   map.on('click', 'routeAlt', e => { const f = e.features && e.features[0]; if (f && preview) selectRoute(f.properties.i); });
   map.on('mouseenter', 'pois', () => map.getCanvas().style.cursor = 'pointer');
+  map.on('click', 'gas', e => { const f = e.features && e.features[0]; if (f) showGas(f.properties.id); });
   setupLongPress();
 
   const el = document.createElement('div'); el.className = 'me';
@@ -301,12 +303,16 @@ async function boot() {
     '<path d="M23 6 L35 36 L23 29 L11 36 Z" fill="#33ccff" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/></svg>';
   meMarker = new maplibregl.Marker({ element: el, rotationAlignment: 'map', pitchAlignment: 'map' }).setLngLat(start).addTo(map);
 
-  map.once('load', () => { $('#splash').classList.add('hidden'); });
+  map.once('load', () => {
+    $('#splash').classList.add('hidden');
+    const sh = N && N.takeShared ? N.takeShared() : ''; if (sh) onShared(sh);
+  });
   setTimeout(() => $('#splash').classList.add('hidden'), 9000);
 
   cleanReports();
   loadRadars(false);
   loadDgt(); setInterval(loadDgt, 3 * 60000);
+  setTimeout(() => loadFuel(false), 2500); setInterval(() => loadFuel(false), 60 * 60000);
   setInterval(() => { cleanReports(); refreshPois(); applyStyle(false); }, 5 * 60000);
   if (!N && navigator.geolocation) {
     navigator.geolocation.watchPosition(p => onGps(p.coords.latitude, p.coords.longitude, p.coords.speed == null ? -1 : p.coords.speed,
@@ -354,7 +360,15 @@ function onStyleLoad() {
     layout: { 'text-field': ['to-string', ['get', 'max']], 'text-size': 12, 'text-offset': [0, 1.7], 'text-allow-overlap': true,
       'text-font': ['Noto Sans Bold'] },
     paint: { 'text-color': '#111', 'text-halo-color': '#fff', 'text-halo-width': 2 } });
+  if (!map.hasImage('i_gas')) map.addImage('i_gas', makeIcon('⛽', '#2e7d32'), { pixelRatio: 2 });
+  map.addSource('gas', { type: 'geojson', data: empty });
+  map.addLayer({ id: 'gas', type: 'symbol', source: 'gas', minzoom: 12, layout: {
+      'icon-image': 'i_gas', 'icon-size': 0.75, 'icon-allow-overlap': false,
+      'text-field': ['get', 'p'], 'text-size': 13, 'text-offset': [0, 1.5], 'text-anchor': 'top', 'text-font': ['Noto Sans Bold'],
+      'text-allow-overlap': false, visibility: cfg.gas ? 'visible' : 'none' },
+    paint: { 'text-color': ['get', 'c'], 'text-halo-color': '#111', 'text-halo-width': 2 } }, 'pois');
   refreshPois();
+  refreshGas();
   drawRoutes();
 }
 
@@ -420,7 +434,7 @@ function placeMenu(pos) {
 /* ====================== Hoja inferior ====================== */
 let sheetOnClose = null;
 function openSheet(html, onClose) {
-  $('#sheetBody').innerHTML = html;
+  $('#sheetBody').innerHTML = html; delete $('#sheetBody').dataset.gas;
   $('#sheet').classList.remove('hidden'); $('#sheetBg').classList.remove('hidden');
   $('#sheet').scrollTop = 0; sheetOnClose = onClose || null;
 }
@@ -432,7 +446,7 @@ const sheetOpen = () => !$('#sheet').classList.contains('hidden');
 $('#sheetBg').onclick = closeSheet;
 
 /* ====================== Búsqueda ====================== */
-let favs = store.get('favs', {}), recents = store.get('recents', []);
+let favs = store.get('favs', {}), recents = store.get('recents', []), favList = store.get('favList', []);
 function setFav(k, v) { favs[k] = v; store.set('favs', favs); toast((k === 'casa' ? '🏠 Casa' : '💼 Trabajo') + ' guardado'); }
 function addRecent(d) {
   recents = [d].concat(recents.filter(r => Math.abs(r.lat - d.lat) > 1e-4 || Math.abs(r.lon - d.lon) > 1e-4)).slice(0, 10);
@@ -450,19 +464,24 @@ function rowHtml(i, icon, t1, t2, right) {
 function bindRows(list) {
   document.querySelectorAll('#sheetBody .row[data-i]').forEach(el => el.onclick = () => {
     const d = list[+el.dataset.i]; if (!d) return;
-    if (d.fav && !d.lat) { toast('Mantén pulsado un punto del mapa y elige «Guardar como ' + (d.fav === 'casa' ? 'Casa' : 'Trabajo') + '»', 5000); return; }
-    $('#q').blur(); closeSheet(); goTo(d);
+    if (d.fav && d.lat == null) { startPick(d.fav); return; }
+    $('#q').blur();
+    if (pickFor) { const k = pickFor; pickFor = null; sheetOnClose = null; closeSheet(); $('#q').value = ''; finishPick(k, d); return; }
+    closeSheet(); goTo(d);
   });
 }
 async function showSearch(q) {
   const seq = ++searchSeq;
-  let html = '<div class="sTitle">¿A dónde vamos?</div>';
+  let html = '<div class="sTitle">' + (pickFor ? PICK_TITLE[pickFor] : '¿A dónde vamos?') + '</div>' +
+    (pickFor ? '<div class="sSub">Escribe arriba la dirección o el sitio y elígelo de la lista.</div>' : '');
   const list = [];
+  if (!q && pickFor) { openSheet(html, pickCancel); bindRows(list); return; }
   if (!q) {
     list.push(Object.assign({ fav: 'casa', name: 'Casa' }, favs.casa || {}));
     list.push(Object.assign({ fav: 'trabajo', name: 'Trabajo' }, favs.trabajo || {}));
-    html += rowHtml(0, '🏠', 'Casa', favs.casa ? '' : 'Sin guardar: mantén pulsado el mapa') +
-      rowHtml(1, '💼', 'Trabajo', favs.trabajo ? '' : 'Sin guardar: mantén pulsado el mapa');
+    html += rowHtml(0, '🏠', 'Casa', favs.casa ? (favs.casa.sub || '') : 'Toca para guardar tu dirección') +
+      rowHtml(1, '💼', 'Trabajo', favs.trabajo ? (favs.trabajo.sub || '') : 'Toca para guardar tu dirección');
+    favList.forEach(f => { list.push(f); html += rowHtml(list.length - 1, '⭐', f.name, f.sub || ''); });
     html += '<div class="chips">' + ['Gasolinera', 'Parking', 'Cargador eléctrico', 'Taller', 'Hospital', 'Farmacia', 'Cafetería']
       .map(c => '<button class="chip" data-c="' + c + '">' + c + '</button>').join('') + '</div>';
     recents.forEach(r => { list.push(r); html += rowHtml(list.length - 1, '🕘', r.name, r.sub || ''); });
@@ -473,7 +492,7 @@ async function showSearch(q) {
   const m = q.match(/^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$/);
   if (m) {
     list.push({ name: 'Coordenadas', sub: q, lat: +m[1], lon: +m[2] });
-    openSheet(html + rowHtml(0, '📍', 'Ir a estas coordenadas', q)); bindRows(list); return;
+    openSheet(html + rowHtml(0, '📍', 'Estas coordenadas', q), pickFor ? pickCancel : null); bindRows(list); return;
   }
   if (!sheetOpen() || !$('#sheetBody .sTitle')) openSheet(html + '<div class="muted">Buscando…</div>');
   const c = me || map.getCenter().toArray();
@@ -492,46 +511,54 @@ async function showSearch(q) {
     }
     list.forEach((d, i) => { html += rowHtml(i, '📍', d.name, d.sub, me ? fmtDist(dist(me, [d.lon, d.lat])) : ''); });
     if (!list.length) html += '<div class="muted">No he encontrado nada. Prueba con la calle y el pueblo, p. ej. «Calle Mayor 5 Alcorcón».</div>';
-    openSheet(html); bindRows(list);
+    openSheet(html, pickFor ? pickCancel : null); bindRows(list);
   } catch (e) {
     if (seq === searchSeq) openSheet(html + '<div class="muted">No se pudo buscar (' + esc(e.message) + '). ¿Tienes internet?</div>');
   }
 }
 
 /* ====================== Rutas ====================== */
-let dest = null, routes = [], selIdx = 0, preview = false, active = null, navigating = false;
+let dest = null, stops = [], routes = [], selIdx = 0, preview = false, active = null, navigating = false, pendingGo = null;
 
 const VAL_ARROW = { 1: 'start', 2: 'start', 3: 'start', 4: 'dest', 5: 'dest', 6: 'dest', 7: 'straight', 8: 'straight', 9: 'slight_right',
   10: 'right', 11: 'sharp_right', 12: 'uturn', 13: 'uturn', 14: 'sharp_left', 15: 'left', 16: 'slight_left', 17: 'straight',
   18: 'slight_right', 19: 'slight_left', 20: 'slight_right', 21: 'slight_left', 22: 'straight', 23: 'slight_right', 24: 'slight_left',
   25: 'straight', 26: 'roundabout', 27: 'roundabout_exit', 28: 'straight', 29: 'straight', 37: 'slight_right', 38: 'slight_left' };
 const ARROW = { start: '⬆', dest: '🏁', straight: '⬆', slight_right: '⬈', right: '➡', sharp_right: '⬊', uturn: '↩', sharp_left: '⬋',
-  left: '⬅', slight_left: '⬉', roundabout: '⟳', roundabout_exit: '⬈' };
+  left: '⬅', slight_left: '⬉', roundabout: '⟳', roundabout_exit: '⬈', stop: '📍' };
 
-async function routeValhalla(from, to) {
+async function routeValhalla(from, pts) {
   const loc0 = { lat: from[1], lon: from[0] };
   if (speedMs > 3 && heading >= 0) { loc0.heading = Math.round(heading); loc0.heading_tolerance = 60; }
-  const req = { locations: [loc0, { lat: to[1], lon: to[0] }], costing: 'auto',
+  const req = { locations: [loc0].concat(pts.map(p => ({ lat: p[1], lon: p[0], type: 'break' }))), costing: 'auto',
     costing_options: { auto: { use_tolls: cfg.tolls ? 0 : 0.5, use_highways: cfg.highways ? 0 : 1 } },
-    directions_options: { language: 'es-ES', units: 'kilometers' }, alternates: 2 };
+    directions_options: { language: 'es-ES', units: 'kilometers' } };
+  if (pts.length === 1) req.alternates = 2;
   const j = await getJSON('https://valhalla1.openstreetmap.de/route?json=' + encodeURIComponent(JSON.stringify(req)));
   const trips = [j.trip].concat((j.alternates || []).map(a => a.trip)).filter(Boolean);
   return trips.map(trip => {
     const coords = [], steps = [];
-    for (const leg of trip.legs) {
+    trip.legs.forEach((leg, li) => {
       const off = coords.length ? coords.length - 1 : 0;
       const pts = decode6(leg.shape); if (coords.length) pts.shift();
       coords.push(...pts);
-      for (const m of leg.maneuvers) steps.push({ i: m.begin_shape_index + off, kind: VAL_ARROW[m.type] || 'straight',
+      const last = li === trip.legs.length - 1;
+      for (const m of leg.maneuvers) {
+        let kind = VAL_ARROW[m.type] || 'straight';
+        if (kind === 'dest' && !last) kind = 'stop';
+        if (kind === 'start' && li > 0) continue;
+        steps.push({ i: m.begin_shape_index + off, kind,
         text: m.instruction || '', pre: m.verbal_pre_transition_instruction || m.instruction || '',
         alert: m.verbal_transition_alert_instruction || m.verbal_pre_transition_instruction || m.instruction || '',
         street: (m.street_names || m.begin_street_names || [])[0] || '' });
-    }
+      }
+    });
     return { coords, steps, time: trip.summary.time, len: trip.summary.length * 1000, delay: 0, src: 'OSM' };
   });
 }
 function ttKind(m) {
   m = m || '';
+  if (/WAYPOINT/.test(m)) return 'stop';
   if (/ARRIVE/.test(m)) return 'dest'; if (/DEPART/.test(m)) return 'start';
   if (/ROUNDABOUT/.test(m)) return 'roundabout'; if (/U_?TURN|MAKE_UTURN/.test(m)) return 'uturn';
   if (/SHARP_RIGHT/.test(m)) return 'sharp_right'; if (/SHARP_LEFT/.test(m)) return 'sharp_left';
@@ -540,9 +567,10 @@ function ttKind(m) {
   if (/RIGHT/.test(m)) return 'right'; if (/LEFT/.test(m)) return 'left';
   return 'straight';
 }
-async function routeTomTom(from, to) {
-  let url = 'https://api.tomtom.com/routing/1/calculateRoute/' + from[1] + ',' + from[0] + ':' + to[1] + ',' + to[0] +
-    '/json?key=' + encodeURIComponent(cfg.tomtom) + '&traffic=true&travelMode=car&routeType=fastest&instructionsType=text&language=es-ES&maxAlternatives=2';
+async function routeTomTom(from, pts) {
+  let url = 'https://api.tomtom.com/routing/1/calculateRoute/' + [from].concat(pts).map(p => p[1] + ',' + p[0]).join(':') +
+    '/json?key=' + encodeURIComponent(cfg.tomtom) + '&traffic=true&travelMode=car&routeType=fastest&instructionsType=text&language=es-ES' +
+    (pts.length === 1 ? '&maxAlternatives=2' : '');
   if (cfg.tolls) url += '&avoid=tollRoads';
   if (cfg.highways) url += '&avoid=motorways';
   if (speedMs > 3 && heading >= 0) url += '&vehicleHeading=' + Math.round(heading);
@@ -555,11 +583,13 @@ async function routeTomTom(from, to) {
     return { coords, steps, time: r.summary.travelTimeInSeconds, len: r.summary.lengthInMeters, delay: r.summary.trafficDelayInSeconds || 0, src: 'TomTom' };
   });
 }
-async function calcRoutes(from, to) {
+/** Ruta desde «from» pasando por las paradas pendientes hasta el destino */
+async function calcRoutes(from) {
+  const pts = stops.map(p => [p.lon, p.lat]).concat([[dest.lon, dest.lat]]);
   if (cfg.tomtom) {
-    try { const r = await routeTomTom(from, to); if (r.length) return r; } catch (e) { console.log('TomTom: ' + e.message); }
+    try { const r = await routeTomTom(from, pts); if (r.length) return r; } catch (e) { console.log('TomTom: ' + e.message); }
   }
-  return routeValhalla(from, to);
+  return routeValhalla(from, pts);
 }
 function prepRoute(r) {
   r.cum = [0];
@@ -614,15 +644,22 @@ function setDestMarker(d) {
   if (destMarker) destMarker.remove(); destMarker = null;
   if (d) destMarker = new maplibregl.Marker({ color: '#e53935' }).setLngLat([d.lon, d.lat]).addTo(map);
 }
-async function goTo(d) {
+async function goTo(d, keepStops) {
   if (navigating) stopNav(true);
-  if (!me) { toast('Esperando señal GPS… sal a un sitio despejado', 4000); }
-  const from = me || map.getCenter().toArray();
+  if (!keepStops) stops = [];
   dest = d; addRecent({ name: d.name, sub: d.sub || '', lon: d.lon, lat: d.lat });
   setDestMarker(d);
+  if (!me) {
+    pendingGo = d;
+    openSheet('<div class="sTitle">🚗 ' + esc(d.name) + '</div><div class="muted">Esperando la señal del GPS para calcular la ruta… Si tarda, sal a un sitio despejado.</div>',
+      () => { pendingGo = null; cancelPreview(); });
+    return;
+  }
+  pendingGo = null;
+  const from = me;
   openSheet('<div class="sTitle">🚗 ' + esc(d.name) + '</div><div class="muted">Calculando la mejor ruta…</div>', cancelPreview);
   try {
-    routes = (await calcRoutes(from, [d.lon, d.lat])).map(prepRoute);
+    routes = (await calcRoutes(from)).map(prepRoute);
     if (!routes.length) throw new Error('sin ruta');
   } catch (e) {
     openSheet('<div class="sTitle">No hay ruta</div><div class="sSub">' + esc(e.message) + '</div><button class="btn alt" id="rx">Cerrar</button>', cancelPreview);
@@ -640,6 +677,10 @@ function fitRoutes() {
 function routeSheet() {
   const best = Math.min(...routes.map(r => r.time));
   let h = '<div class="sTitle">🚗 ' + esc(dest.name) + '</div>' + (dest.sub ? '<div class="sSub">' + esc(dest.sub) + '</div>' : '');
+  stops.forEach((p, i) => {
+    h += '<div class="row"><div class="ri">📍</div><div class="rt"><div class="r1">Parada ' + (i + 1) + ': ' + esc(p.name) + '</div>' +
+      (p.sub ? '<div class="r2">' + esc(p.sub) + '</div>' : '') + '</div><button class="rowbtn" data-xs="' + i + '">✕</button></div>';
+  });
   routes.forEach((r, i) => {
     const eta = new Date(Date.now() + r.time * 1000).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
     const t2 = fmtDist(r.len) + ' · llegada ' + eta + (r.delay > 60 ? ' · 🔴 +' + fmtTime(r.delay) + ' atasco' : '');
@@ -647,12 +688,20 @@ function routeSheet() {
     h += '<div class="row' + (i === selIdx ? ' sel' : '') + '" data-r="' + i + '"><div class="ri">' + (i === 0 ? '⭐' : '↪️') + '</div><div class="rt"><div class="r1">' +
       fmtTime(r.time) + (r.time === best && routes.length > 1 ? ' · la más rápida' : '') + '</div><div class="r2">' + t2 + '</div><div class="r2">' + t3 + '</div></div></div>';
   });
-  h += '<button class="btn" id="rGo">▶ Iniciar</button><button class="btn alt" id="rList">📋 Ver indicaciones y avisos</button>';
+  h += '<button class="btn" id="rGo">▶ Iniciar</button>' +
+    '<div class="btnrow"><button class="btn alt" id="rStop">➕ Parada</button><button class="btn alt" id="rGas">⛽ Gasolineras</button><button class="btn alt" id="rList">📋 Detalles</button></div>' +
+    '<div class="btnrow"><button class="btn alt" id="rFav">⭐ Favorito</button><button class="btn alt" id="rHome">🏠 Casa</button><button class="btn alt" id="rWork">💼 Trabajo</button></div>';
   h += '<div class="muted" style="margin-top:8px">Rutas: ' + (routes[0].src === 'TomTom' ? 'TomTom con tráfico en directo' : 'OpenStreetMap (Valhalla)') + '</div>';
   openSheet(h, cancelPreview);
   document.querySelectorAll('#sheetBody [data-r]').forEach(el => el.onclick = () => selectRoute(+el.dataset.r));
   $('#rGo').onclick = () => { sheetOnClose = null; closeSheet(); startNav(); };
   $('#rList').onclick = () => stepsSheet(routes[selIdx], false);
+  $('#rStop').onclick = () => startPick('stop');
+  $('#rGas').onclick = () => gasSheet(routes[selIdx], 0);
+  $('#rFav').onclick = () => addFavorite(dest);
+  $('#rHome').onclick = () => setFav('casa', Object.assign({}, dest, { name: 'Casa', sub: dest.name }));
+  $('#rWork').onclick = () => setFav('trabajo', Object.assign({}, dest, { name: 'Trabajo', sub: dest.name }));
+  document.querySelectorAll('#sheetBody [data-xs]').forEach(b => b.onclick = ev => { ev.stopPropagation(); stops.splice(+b.dataset.xs, 1); goTo(dest, true); });
 }
 function selectRoute(i) { selIdx = +i; drawRoutes(); routeSheet(); }
 function stepsSheet(r, fromNav) {
@@ -660,13 +709,15 @@ function stepsSheet(r, fromNav) {
   const items = r.steps.map(s => ({ at: s.at, html: rowHtml(-1, ARROW[s.kind] || '⬆', s.text, s.street, fmtDist(s.at)) }))
     .concat((r.pois || []).map(o => ({ at: o.at, html: rowHtml(-1, CAT[o.p.cat].e, CAT[o.p.cat].n + (o.p.max ? ' · ' + o.p.max : ''), o.p.sub || '', fmtDist(o.at)) })));
   items.sort((a, b) => a.at - b.at).forEach(x => h += x.html);
+  if (fromNav) h += '<div class="btnrow"><button class="btn alt" id="sStop">➕ Añadir parada</button><button class="btn alt" id="sGas">⛽ Gasolineras</button></div>';
   h += '<button class="btn alt" id="sBack">Volver</button>';
   openSheet(h, fromNav ? null : cancelPreview);
   $('#sBack').onclick = () => fromNav ? closeSheet() : routeSheet();
+  if (fromNav) { $('#sStop').onclick = () => startPick('stop'); $('#sGas').onclick = () => gasSheet(active, nav.along); }
 }
 function cancelPreview() {
-  if (navigating) return;
-  preview = false; routes = []; dest = null; setDestMarker(null); drawRoutes(); setFollow(true);
+  if (navigating || pickFor) return;
+  preview = false; routes = []; dest = null; stops = []; setDestMarker(null); drawRoutes(); setFollow(true);
 }
 
 /* ====================== Navegación ====================== */
@@ -674,7 +725,7 @@ const nav = { idx: 0, step: 0, off: 0, lastReroute: 0, said: {}, along: 0, arriv
 function startNav() {
   active = routes[selIdx]; routes = []; preview = false; navigating = true;
   Object.assign(nav, { idx: 0, step: 0, off: 0, lastReroute: Date.now(), said: {}, along: 0, arrived: false });
-  document.body.classList.add('nav');
+  document.body.classList.add('nav'); $('#btnGas').classList.remove('hidden');
   $('#searchBar').classList.add('hidden'); $('#banner').classList.remove('hidden'); $('#navBar').classList.remove('hidden');
   drawRoutes(); setFollow(true);
   const first = active.steps[0];
@@ -682,8 +733,8 @@ function startNav() {
   if (me) navUpdate();
 }
 function stopNav(silent) {
-  navigating = false; active = null; dest = null; setDestMarker(null);
-  document.body.classList.remove('nav');
+  navigating = false; active = null; dest = null; stops = []; setDestMarker(null);
+  document.body.classList.remove('nav'); $('#btnGas').classList.add('hidden');
   $('#searchBar').classList.remove('hidden'); $('#banner').classList.add('hidden'); $('#navBar').classList.add('hidden');
   drawRoutes(); setFollow(true);
   if (!silent && N) N.stopSpeak();
@@ -699,7 +750,7 @@ async function reroute() {
   if (!dest || !me) return;
   say('Recalculando', true);
   try {
-    const rs = await calcRoutes(me, [dest.lon, dest.lat]);
+    const rs = await calcRoutes(me);
     if (!rs.length || !navigating) return;
     active = prepRoute(rs[0]);
     Object.assign(nav, { idx: 0, step: 0, off: 0, along: 0 });
@@ -728,8 +779,13 @@ function navUpdate() {
     const A = r.coords[nav.idx], B = r.coords[nav.idx + 1];
     meMarker.setLngLat([A[0] + (B[0] - A[0]) * best.t, A[1] + (B[1] - A[1]) * best.t]);
   }
-  // 2) Próxima maniobra
-  while (nav.step < r.steps.length - 1 && r.steps[nav.step].at < nav.along + 8) nav.step++;
+  // 2) Próxima maniobra (y paradas intermedias superadas)
+  while (nav.step < r.steps.length - 1 && r.steps[nav.step].at < nav.along + 8) {
+    if (r.steps[nav.step].kind === 'stop' && stops.length) {
+      const p = stops.shift(); say('Has llegado a tu parada: ' + p.name + '. Cuando quieras, seguimos.', true); toast('📍 Parada: ' + p.name);
+    }
+    nav.step++;
+  }
   const st = r.steps[nav.step]; if (!st) return;
   const dm = Math.max(0, st.at - nav.along);
   const rest = Math.max(0, r.total - nav.along);
@@ -752,7 +808,9 @@ function navUpdate() {
     setTimeout(() => stopNav(true), 4000); return;
   }
   if (dm <= far && dm > near + 80 && legLen > far * 0.6 && !nav.said['sf' + nav.step]) {
-    nav.said['sf' + nav.step] = 1; say('En ' + sayDist(dm) + ', ' + lowFirst(st.alert));
+    nav.said['sf' + nav.step] = 1;
+    say(st.kind === 'dest' ? 'En ' + sayDist(dm) + ' llegarás a tu destino' : st.kind === 'stop' ? 'En ' + sayDist(dm) + ' llegarás a tu parada'
+      : 'En ' + sayDist(dm) + ', ' + lowFirst(st.alert));
   }
   if (dm <= near && !nav.said['sn' + nav.step]) {
     nav.said['sn' + nav.step] = 1; nav.said['sf' + nav.step] = 1;
@@ -806,7 +864,7 @@ function checkAlerts() {
   }
   // Tarjeta visual
   const card = $('#alert');
-  if (!top) { card.classList.add('hidden'); shownAlert = null; $('#speed').classList.remove('over'); return; }
+  if (!top) { card.classList.add('hidden'); shownAlert = null; return; }
   const p = top.p, c = CAT[p.cat];
   shownAlert = p.id;
   card.classList.remove('hidden'); card.classList.toggle('free', !navigating);
@@ -814,9 +872,9 @@ function checkAlerts() {
   $('#aIcon').textContent = c.e; $('#aTitle').textContent = c.n; $('#aSub').textContent = p.sub || '';
   $('#aDist').textContent = fmtDist(top.d);
   if (p.max) { $('#aLimit').textContent = p.max; $('#aLimit').classList.remove('hidden'); } else $('#aLimit').classList.add('hidden');
-  const over = IS_CAMERA(p.cat) && p.max && kmh > p.max + 2;
+  const lim = p.max || (IS_CAMERA(p.cat) ? roadLimit : 0);
+  const over = IS_CAMERA(p.cat) && lim && kmh > lim + 2;
   card.classList.toggle('speeding', !!over);
-  $('#speed').classList.toggle('over', !!over);
   if (over && (!checkAlerts.lastOver || Date.now() - checkAlerts.lastOver > 3500)) {
     checkAlerts.lastOver = Date.now(); beep(2); vib(300);
     if (!checkAlerts.saidOver || Date.now() - checkAlerts.saidOver > 20000) { checkAlerts.saidOver = Date.now(); say('Reduce la velocidad', true); }
@@ -840,6 +898,8 @@ window.onGps = (lat, lon, spd, brg, acc, isGps) => {
   if (navigating) navUpdate();
   checkAlerts();
   if (firstFix && !preview) map.jumpTo({ center: pos, zoom: 15.5 });
+  if (firstFix && pendingGo) goTo(pendingGo, true);
+  updateLimit();
   if (follow && !preview) moveCamera();
   if (!onGps.saved || now - onGps.saved > 60000) { onGps.saved = now; store.set('lastPos', pos); }
 };
@@ -889,11 +949,15 @@ $('#btnLayers').onclick = () => {
     t('semaforos', '🚦 Cámaras de semáforo') +
     t('incid', '⚠️ Incidencias de la DGT', dgt.length + ' ahora mismo · se actualiza cada 3 min') +
     t('reports', '🚓 Mis avisos', reports.length + ' activos') +
+    t('gas', '⛽ Gasolineras con precio', (fuel.length || 0) + ' gasolineras · se ve al acercar el mapa') +
     '<div class="set"><label>Estilo del mapa</label><select id="stSel"><option value="auto">Automático (oscuro de noche)</option><option value="light">Claro</option>' +
     '<option value="dark">Oscuro</option><option value="soft">Suave</option></select></div>');
   $('#stSel').value = cfg.style;
   $('#stSel').onchange = e => { cfg.style = e.target.value; saveCfg(); applyStyle(true); };
-  document.querySelectorAll('#sheetBody input[type=checkbox]').forEach(i => i.onchange = () => { cfg[i.dataset.k] = i.checked; saveCfg(); refreshPois(); });
+  document.querySelectorAll('#sheetBody input[type=checkbox]').forEach(i => i.onchange = () => {
+    cfg[i.dataset.k] = i.checked; saveCfg(); refreshPois();
+    if (map.getLayer('gas')) map.setLayoutProperty('gas', 'visibility', cfg.gas ? 'visible' : 'none');
+  });
 };
 
 /* ====================== Ajustes ====================== */
@@ -903,27 +967,332 @@ function settingsSheet() {
   openSheet('<div class="sTitle">⚙️ Ajustes</div>' +
     t('voice', '🔊 Indicaciones por voz') + t('beep', '🔔 Pitido en radares y exceso de velocidad') +
     t('tolls', '💶 Evitar peajes') + t('highways', '🛣️ Evitar autopistas y autovías') +
+    t('limit', '🚫 Mostrar el límite de velocidad de la vía', 'Sale de OpenStreetMap; en algunas calles no hay dato') +
+    t('limitWarn', '⚠️ Avisar si paso el límite de la vía') +
+    '<div class="set"><label>⛽ Mi combustible</label><select id="fuelSel">' + Object.keys(FUELS).map(k => '<option value="' + k + '">' + FUELS[k].n + '</option>').join('') + '</select></div>' +
+    '<button class="btn alt" id="bFavs">⭐ Casa, Trabajo y Favoritos</button>' +
     '<div class="set" style="display:block"><label>🚦 Clave de TomTom (opcional, gratis)<small>Activa el tráfico en directo y las rutas que esquivan atascos. Se saca gratis en developer.tomtom.com</small></label>' +
     '<input type="text" id="ttKey" placeholder="Pega aquí tu clave" value="' + esc(cfg.tomtom) + '" autocapitalize="off" autocorrect="off" spellcheck="false"></div>' +
     '<button class="btn alt" id="bRad">📷 Actualizar radares ahora</button>' +
     '<button class="btn alt" id="bUpd">🔄 Buscar actualización de la app (v' + esc(ver) + ')</button>' +
     '<button class="btn alt" id="bTest">🔊 Probar la voz</button>' +
     '<div class="muted" style="margin-top:12px">Mapa © OpenStreetMap y OpenFreeMap · Rutas Valhalla (FOSSGIS) · Incidencias DGT (datos abiertos) · Búsqueda Photon. ' +
-    'Los radares móviles reales solo se pueden saber si alguien los avisa: usa el botón ⚠️.</div>');
+    'Precios de carburantes: Ministerio (datos abiertos). Los radares móviles reales solo se pueden saber si alguien los avisa: usa el botón ⚠️.</div>');
   document.querySelectorAll('#sheetBody input[type=checkbox]').forEach(i => i.onchange = () => { cfg[i.dataset.k] = i.checked; saveCfg(); });
   $('#ttKey').onchange = e => {
     const had = !!cfg.tomtom; cfg.tomtom = e.target.value.trim(); saveCfg();
     toast(cfg.tomtom ? 'Clave de TomTom guardada' : 'Clave quitada'); if (had !== !!cfg.tomtom || cfg.tomtom) applyStyle(true);
   };
+  $('#fuelSel').value = cfg.fuel;
+  $('#fuelSel').onchange = e => { cfg.fuel = e.target.value; saveCfg(); refreshGas(); };
+  $('#bFavs').onclick = favSheet;
+  document.querySelectorAll('#sheetBody input[data-k=limit]').forEach(i => i.addEventListener('change', () => { if (!cfg.limit) $('#limit').classList.add('hidden'); }));
   $('#bRad').onclick = () => { toast('Descargando radares… (puede tardar un minuto)', 5000); loadRadars(true); };
   $('#bUpd').onclick = () => { if (N) N.checkUpdate(); };
   $('#bTest').onclick = () => say('Radar fijo a 500 metros. Límite 100.', true);
 }
 $('#btnSettings').onclick = settingsSheet;
 
+
+/* ====================== Casa, Trabajo y Favoritos ====================== */
+let pickFor = null; // 'casa' | 'trabajo' | 'fav' | 'stop'
+const PICK_TITLE = { casa: '🏠 ¿Cuál es tu casa?', trabajo: '💼 ¿Dónde trabajas?', fav: '⭐ Nuevo favorito', stop: '📍 Añadir una parada' };
+function startPick(k) {
+  pickFor = k;
+  $('#q').value = '';
+  showSearch('');
+  if (navigating) { $('#searchBar').classList.remove('hidden'); }
+  setTimeout(() => $('#q').focus(), 150);
+}
+function pickCancel() {
+  pickFor = null;
+  if (navigating) $('#searchBar').classList.add('hidden');
+  if (preview && routes.length) setTimeout(routeSheet, 50);
+}
+function finishPick(k, d) {
+  if (navigating) $('#searchBar').classList.add('hidden');
+  const place = { name: d.name, sub: d.sub || '', lon: d.lon, lat: d.lat };
+  if (k === 'casa') setFav('casa', Object.assign({}, place, { name: 'Casa', sub: d.name + (d.sub ? ', ' + d.sub : '') }));
+  else if (k === 'trabajo') setFav('trabajo', Object.assign({}, place, { name: 'Trabajo', sub: d.name + (d.sub ? ', ' + d.sub : '') }));
+  else if (k === 'fav') addFavorite(place);
+  else if (k === 'stop') addStop(place);
+  if ((k === 'casa' || k === 'trabajo' || k === 'fav') && !navigating && !preview) setTimeout(favSheet, 400);
+  else if (preview && k !== 'stop') setTimeout(routeSheet, 300);
+}
+function addFavorite(p) {
+  if (favList.some(f => Math.abs(f.lat - p.lat) < 1e-4 && Math.abs(f.lon - p.lon) < 1e-4)) { toast('Ya está en tus favoritos'); return; }
+  favList.push({ id: 'f' + Date.now(), name: p.name, sub: p.sub || '', lon: p.lon, lat: p.lat });
+  store.set('favList', favList); toast('⭐ Guardado en favoritos');
+}
+function addStop(p) {
+  if (navigating) { stops.unshift(p); toast('📍 Parada añadida: ' + p.name); reroute(); }
+  else if (dest) { stops.push(p); goTo(dest, true); }
+  else goTo(p);
+}
+function favSheet() {
+  let h = '<div class="sTitle">⭐ Tus sitios</div>';
+  const one = (k, icon, label) => {
+    const f = favs[k];
+    return '<div class="row" data-go="' + k + '"><div class="ri">' + icon + '</div><div class="rt"><div class="r1">' + label + '</div><div class="r2">' +
+      esc(f ? (f.sub || '') : 'Sin guardar') + '</div></div><button class="rowbtn" data-chg="' + k + '">' + (f ? '✏️' : '➕') + '</button>' +
+      (f ? '<button class="rowbtn" data-delk="' + k + '">🗑️</button>' : '') + '</div>';
+  };
+  h += one('casa', '🏠', 'Casa') + one('trabajo', '💼', 'Trabajo');
+  favList.forEach((f, i) => {
+    h += '<div class="row" data-gf="' + i + '"><div class="ri">⭐</div><div class="rt"><div class="r1">' + esc(f.name) + '</div><div class="r2">' + esc(f.sub || '') +
+      '</div></div><button class="rowbtn" data-ren="' + i + '">✏️</button><button class="rowbtn" data-del="' + i + '">🗑️</button></div>';
+  });
+  if (!favList.length) h += '<div class="muted" style="margin:6px 2px 10px">Aún no tienes favoritos. Añade uno con el botón de abajo, con ⭐ al ver una ruta, o manteniendo pulsado el mapa.</div>';
+  h += '<button class="btn" id="fAdd">➕ Añadir favorito</button>';
+  openSheet(h);
+  const stop = ev => ev.stopPropagation();
+  document.querySelectorAll('#sheetBody [data-go]').forEach(el => el.onclick = () => {
+    const f = favs[el.dataset.go]; if (!f) { startPick(el.dataset.go); return; } closeSheet(); goTo(f);
+  });
+  document.querySelectorAll('#sheetBody [data-chg]').forEach(b => b.onclick = ev => { stop(ev); startPick(b.dataset.chg); });
+  document.querySelectorAll('#sheetBody [data-delk]').forEach(b => b.onclick = ev => { stop(ev); delete favs[b.dataset.delk]; store.set('favs', favs); favSheet(); });
+  document.querySelectorAll('#sheetBody [data-gf]').forEach(el => el.onclick = () => { const f = favList[+el.dataset.gf]; closeSheet(); goTo(f); });
+  document.querySelectorAll('#sheetBody [data-del]').forEach(b => b.onclick = ev => { stop(ev); favList.splice(+b.dataset.del, 1); store.set('favList', favList); favSheet(); });
+  document.querySelectorAll('#sheetBody [data-ren]').forEach(b => b.onclick = ev => { stop(ev); renameFav(+b.dataset.ren); });
+  $('#fAdd').onclick = () => startPick('fav');
+}
+function renameFav(i) {
+  const f = favList[i]; if (!f) return;
+  openSheet('<div class="sTitle">✏️ Cambiar nombre</div><input class="inl" id="rnIn" maxlength="40" value="' + esc(f.name) + '">' +
+    '<button class="btn" id="rnOk">Guardar</button><button class="btn alt" id="rnNo">Cancelar</button>');
+  setTimeout(() => { const i2 = $('#rnIn'); i2.focus(); i2.select(); }, 150);
+  $('#rnOk').onclick = () => { const v = $('#rnIn').value.trim(); if (v) { f.name = v; store.set('favList', favList); } favSheet(); };
+  $('#rnNo').onclick = favSheet;
+}
+$('#qCasa').onclick = () => favs.casa ? goTo(favs.casa) : startPick('casa');
+$('#qTrabajo').onclick = () => favs.trabajo ? goTo(favs.trabajo) : startPick('trabajo');
+$('#qFav').onclick = favSheet;
+$('#qGas').onclick = () => gasSheet(null, 0);
+$('#btnGas').onclick = () => gasSheet(active, nav.along);
+
+/* ====================== Gasolineras (precios oficiales) ====================== */
+const FUELS = { g95: { i: 7, n: 'Gasolina 95' }, g98: { i: 8, n: 'Gasolina 98' }, ga: { i: 9, n: 'Diésel' },
+  gap: { i: 10, n: 'Diésel Premium' }, glp: { i: 11, n: 'Autogás (GLP)' } };
+let fuel = store.get('fuel', []), fuelQ = null, fuelBusy = false, gasWaiting = null;
+async function loadFuel(force) {
+  if (!N || !N.fuel || fuelBusy) return;
+  if (!force && fuel.length && Date.now() - store.get('fuelAt', 0) < 6 * 3600e3) { refreshGas(); return; }
+  fuelBusy = true;
+  try {
+    const arr = JSON.parse(await nativeCall('fuel'));
+    if (arr.length) { fuel = arr; store.set('fuel', fuel); store.set('fuelAt', Date.now()); refreshGas(); }
+  } catch (e) {
+    console.log('Gasolineras: ' + e.message);
+    if (gasWaiting && sheetOpen()) openSheet('<div class="sTitle">⛽ Gasolineras</div><div class="muted">No se pudieron descargar los precios. ¿Tienes internet? Prueba otra vez en un rato.</div>');
+    gasWaiting = null;
+  }
+  fuelBusy = false;
+  if (gasWaiting && fuel.length && sheetOpen() && $('#sheetBody').dataset.gas === 'wait') { const g = gasWaiting; gasWaiting = null; gasSheet(g.route, g.from); }
+}
+const fPrice = (s, k) => s[FUELS[k || cfg.fuel].i] || 0;
+const fmtEur = v => v ? v.toFixed(3).replace('.', ',') + ' €' : '—';
+function priceClass(v) { if (!fuelQ || !v) return 'mid'; return v <= fuelQ[0] ? 'cheap' : v >= fuelQ[1] ? 'dear' : 'mid'; }
+const CLS_COLOR = { cheap: '#7CFC9A', mid: '#ffcc66', dear: '#ff8a80' };
+function refreshGas() {
+  const ps = fuel.map(s => fPrice(s)).filter(v => v > 0).sort((a, b) => a - b);
+  fuelQ = ps.length ? [ps[Math.floor(ps.length * 0.25)], ps[Math.floor(ps.length * 0.75)]] : null;
+  if (!map || !map.getSource('gas')) return;
+  map.getSource('gas').setData({ type: 'FeatureCollection', features: fuel.filter(s => fPrice(s) > 0).map(s => ({
+    type: 'Feature', geometry: { type: 'Point', coordinates: [s[3], s[2]] },
+    properties: { id: s[0], p: fPrice(s).toFixed(3).replace('.', ','), c: CLS_COLOR[priceClass(fPrice(s))] } })) });
+}
+const gasById = id => fuel.find(s => String(s[0]) === String(id));
+function showGas(id) {
+  const s = gasById(id); if (!s) return;
+  let h = '<div class="pop"><b>⛽ ' + esc(s[1] || 'Gasolinera') + '</b><div>' + esc(s[4]) + (s[5] ? ', ' + esc(s[5]) : '') + '</div>';
+  if (s[6]) h += '<div class="muted">🕘 ' + esc(s[6]) + '</div>';
+  for (const k in FUELS) if (fPrice(s, k)) h += '<div>' + FUELS[k].n + ': <span class="' + priceClass(k === cfg.fuel ? fPrice(s, k) : 0) + '"><b>' + fmtEur(fPrice(s, k)) + '</b></span></div>';
+  h += '<div class="pb"><button data-go="1">🚗 Ir aquí</button>' + (navigating || preview ? '<button data-stop="1">📍 Parar aquí</button>' : '') + '</div></div>';
+  const pop = new maplibregl.Popup({ offset: 16, maxWidth: '300px' }).setLngLat([s[3], s[2]]).setHTML(h).addTo(map);
+  const el = pop.getElement(), place = { name: s[1] || 'Gasolinera', sub: s[4] + (s[5] ? ', ' + s[5] : ''), lon: s[3], lat: s[2] };
+  el.querySelector('[data-go]').onclick = () => { pop.remove(); goTo(place); };
+  const st = el.querySelector('[data-stop]'); if (st) st.onclick = () => { pop.remove(); addStop(place); };
+}
+/** Gasolineras más baratas cerca de ti o a lo largo de la ruta */
+function gasSheet(route, from) {
+  if (!fuel.length) {
+    openSheet('<div class="sTitle">⛽ Gasolineras</div><div class="muted">Descargando los precios del Ministerio… un momento.</div>');
+    $('#sheetBody').dataset.gas = 'wait'; gasWaiting = { route, from };
+    loadFuel(true); return;
+  }
+  const r = route || (preview && routes[selIdx]) || (navigating && active) || null;
+  const items = [];
+  if (r) {
+    // puntos de la ruta cada ~300 m
+    const samp = []; let last = -1e9;
+    for (let i = 0; i < r.coords.length; i++) if (r.cum[i] - last >= 300 || i === r.coords.length - 1) { samp.push([r.coords[i], r.cum[i]]); last = r.cum[i]; }
+    const [a, b, c, d] = r.bbox, pad = 0.01;
+    for (const s of fuel) {
+      if (!fPrice(s) || s[3] < a - pad || s[3] > c + pad || s[2] < b - pad || s[2] > d + pad) continue;
+      let best = null;
+      for (const [pt, at] of samp) {
+        if (Math.abs(pt[1] - s[2]) > 0.01) continue;
+        const dd = dist(pt, [s[3], s[2]]);
+        if (dd < 700 && (!best || dd < best.dd)) best = { dd, at };
+      }
+      if (best && best.at >= (from || 0) - 100) items.push({ s, at: best.at - (from || 0), off: best.dd });
+    }
+  } else {
+    const c = me || map.getCenter().toArray();
+    for (const s of fuel) {
+      if (!fPrice(s) || Math.abs(s[2] - c[1]) > 0.1 || Math.abs(s[3] - c[0]) > 0.13) continue;
+      const dd = dist(c, [s[3], s[2]]); if (dd <= 10000) items.push({ s, at: dd, off: 0 });
+    }
+  }
+  items.sort((x, y) => fPrice(x.s) - fPrice(y.s) || x.at - y.at);
+  const top = items.slice(0, 20);
+  let h = '<div class="sTitle">⛽ ' + (r ? 'Más baratas en tu ruta' : 'Más baratas a 10 km') + '</div>' +
+    '<div class="chips">' + Object.keys(FUELS).map(k => '<button class="chip" data-f="' + k + '"' + (k === cfg.fuel ? ' style="background:#1a73e8"' : '') + '>' + FUELS[k].n + '</button>').join('') + '</div>';
+  top.forEach((it, i) => {
+    const s = it.s;
+    h += '<div class="row" data-g="' + i + '"><div class="ri">⛽</div><div class="rt"><div class="r1">' + esc(s[1] || 'Gasolinera') + '</div><div class="r2">' + esc(s[4]) +
+      (s[5] ? ', ' + esc(s[5]) : '') + '</div><div class="r2">' + (r ? 'a ' + fmtDist(it.at) + ' por la ruta' + (it.off > 150 ? ' · desvío ' + fmtDist(it.off) : '') : 'a ' + fmtDist(it.at)) +
+      '</div></div><div class="rr price ' + priceClass(fPrice(s)) + '">' + fmtEur(fPrice(s)) + '</div></div>';
+  });
+  if (!top.length) h += '<div class="muted">No hay gasolineras con ' + FUELS[cfg.fuel].n + ' ' + (r ? 'en esta ruta' : 'a menos de 10 km') + '.</div>';
+  h += '<div class="muted" style="margin-top:8px">Precios oficiales del Ministerio. Verde = de las más baratas de España, rojo = de las más caras.</div>';
+  openSheet(h, preview && !navigating ? () => setTimeout(routeSheet, 50) : null);
+  document.querySelectorAll('#sheetBody [data-f]').forEach(b => b.onclick = () => { cfg.fuel = b.dataset.f; saveCfg(); refreshGas(); gasSheet(route, from); });
+  document.querySelectorAll('#sheetBody [data-g]').forEach(el => el.onclick = () => {
+    const s = top[+el.dataset.g].s, place = { name: s[1] || 'Gasolinera', sub: s[4] + (s[5] ? ', ' + s[5] : ''), lon: s[3], lat: s[2] };
+    if (navigating || preview) {
+      openSheet('<div class="sTitle">⛽ ' + esc(place.name) + '</div><div class="sSub">' + esc(place.sub) + ' · ' + fmtEur(fPrice(s)) + '</div>' +
+        '<button class="btn" id="gStop">📍 Parar aquí de camino</button><button class="btn alt" id="gGo">🚗 Ir solo aquí</button><button class="btn alt" id="gBack">Volver</button>',
+        preview && !navigating ? () => setTimeout(routeSheet, 50) : null);
+      $('#gStop').onclick = () => { sheetOnClose = null; closeSheet(); addStop(place); };
+      $('#gGo').onclick = () => { sheetOnClose = null; closeSheet(); goTo(place); };
+      $('#gBack').onclick = () => gasSheet(route, from);
+    } else { closeSheet(); goTo(place); }
+  });
+}
+
+/* ====================== Límite de velocidad de la vía ====================== */
+let roadLimit = 0, limitWays = null, limitBusy = false, limitAt = 0, limitCand = { v: 0, n: 0 }, limitOverAt = 0, limitSaidFor = 0;
+const LIMIT_TXT = { 'es:urban': 50, 'es:rural': 90, 'es:motorway': 120, 'es:trunk': 100, 'es:zone30': 30, 'es:zone20': 20, 'es:living_street': 20,
+  'es:zone10': 10, 'walk': 10, 'none': 0 };
+function parseMax(v) {
+  if (!v) return 0;
+  v = String(v).toLowerCase().split(';')[0].trim();
+  if (LIMIT_TXT[v] != null) return LIMIT_TXT[v];
+  const n = parseInt(v); if (!n) return 0;
+  return /mph/.test(v) ? Math.round(n * 1.609) : n;
+}
+async function fetchWays(c) {
+  limitBusy = true; limitAt = Date.now();
+  const R = Math.round(Math.max(1200, Math.min(speedMs * 70, 3000)));
+  const q = '[out:json][timeout:25];way(around:' + R + ',' + c[1].toFixed(5) + ',' + c[0].toFixed(5) + ')["highway"~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link)$"];out tags geom;';
+  for (const base of OVERPASS) {
+    try {
+      const j = await getJSON(base + encodeURIComponent(q));
+      const ways = [];
+      for (const w of j.elements || []) {
+        if (!w.geometry || w.geometry.length < 2) continue;
+        const t = w.tags || {};
+        ways.push({ g: w.geometry.map(p => [p.lon, p.lat]), max: parseMax(t.maxspeed), f: parseMax(t['maxspeed:forward']), b: parseMax(t['maxspeed:backward']),
+          oneway: t.oneway === 'yes' || t.highway === 'motorway' || t.junction === 'roundabout' });
+      }
+      limitWays = { c, R, ways };
+      break;
+    } catch (e) { console.log('Límite ' + base + ': ' + e.message); }
+  }
+  limitBusy = false;
+}
+function updateLimit() {
+  if (!cfg.limit || !me) { $('#limit').classList.add('hidden'); roadLimit = 0; return; }
+  if (!limitBusy && (!limitWays || dist(limitWays.c, me) > limitWays.R * 0.55) && Date.now() - limitAt > 15000) fetchWays(me);
+  if (!limitWays) return;
+  let best = null;
+  for (const w of limitWays.ways) {
+    for (let i = 0; i < w.g.length - 1; i++) {
+      const A = w.g[i], B = w.g[i + 1];
+      if (Math.abs(A[1] - me[1]) > 0.004 && Math.abs(B[1] - me[1]) > 0.004) continue;
+      const pr = projSeg(me, A, B); if (pr.d > 30) continue;
+      let fwd = true, pen = 0;
+      if (speedMs > 2) {
+        const ang = angDiff(bearing(A, B), heading);
+        fwd = ang <= 90;
+        pen = Math.min(ang, 180 - ang) / 3; // penaliza calles que no van en tu dirección
+        if (w.oneway && !fwd) pen += 30;
+      }
+      const score = pr.d + pen;
+      if (!best || score < best.score) best = { score, w, fwd };
+    }
+  }
+  let v = 0;
+  if (best) v = (best.fwd ? best.w.f : best.w.b) || best.w.max;
+  // Cambia el número solo cuando se repite dos veces (evita saltos)
+  if (v === limitCand.v) limitCand.n++; else limitCand = { v, n: 1 };
+  if (limitCand.n >= 2 || !roadLimit) roadLimit = limitCand.v;
+  const el = $('#limit'), kmh = speedMs * 3.6;
+  if (!roadLimit) { el.classList.add('hidden'); $('#speed').classList.remove('over'); return; }
+  el.textContent = roadLimit; el.classList.remove('hidden');
+  const over = kmh > roadLimit * 1.08 + 3;
+  $('#speed').classList.toggle('over', over); el.classList.toggle('over', over);
+  if (over && cfg.limitWarn) {
+    if (!limitOverAt) limitOverAt = Date.now();
+    if (Date.now() - limitOverAt > 4000 && limitSaidFor !== roadLimit) {
+      limitSaidFor = roadLimit; beep(1); say('Atención, el límite es de ' + roadLimit);
+    }
+  } else { limitOverAt = 0; if (kmh < roadLimit) limitSaidFor = 0; }
+}
+
+/* ====================== Ubicaciones compartidas ====================== */
+function coordsFrom(t) {
+  let m = t.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  if (m) return [+m[2], +m[1]];
+  m = t.match(/[?&](?:q|ll|daddr|destination|query|center|sll)=(?:loc:)?(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
+  if (m) return [+m[2], +m[1]];
+  m = t.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (m) return [+m[2], +m[1]];
+  m = t.match(/(-?\d{1,2}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/);
+  if (m) return [+m[2], +m[1]];
+  return null;
+}
+function nameFrom(t) {
+  let m = t.match(/\/place\/([^\/@?]+)/); if (m) return decodeURIComponent(m[1].replace(/\+/g, ' '));
+  m = t.match(/\(([^)]{2,60})\)/); if (m) return m[1];
+  return '';
+}
+async function onShared(raw) {
+  let t = String(raw || '').trim(); if (!t) return;
+  toast('📍 Abriendo la ubicación…');
+  try { t = decodeURIComponent(t.replace(/\+/g, ' ')); } catch (e) { }
+  if (/^geo:/i.test(t)) {
+    const g = t.match(/^geo:(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i);
+    const q = (t.split(/[?&]q=/)[1] || '').trim();
+    const c = coordsFrom(q) || (g && (+g[1] || +g[2]) ? [+g[2], +g[1]] : null);
+    if (c) { goTo({ name: nameFrom(q) || 'Ubicación compartida', sub: '', lon: c[0], lat: c[1] }); return; }
+    if (q) { $('#q').value = q.replace(/\(.*\)/, '').trim(); showSearch($('#q').value); return; }
+    return;
+  }
+  const url = (t.match(/https?:\/\/\S+/) || [])[0];
+  let c = coordsFrom(t), name = nameFrom(t);
+  if (!c && url && /goo\.gl|app\.goo/i.test(url) && N && N.resolve) {
+    try {
+      let r = await new Promise((res, rej) => { const id = 'r' + (++reqN); pend[id] = { res, rej }; N.resolve(id, url); setTimeout(() => rej(new Error('tiempo')), 20000); });
+      try { r = decodeURIComponent(r.replace(/\+/g, ' ')); } catch (e) { }
+      c = coordsFrom(r); name = name || nameFrom(r);
+    } catch (e) { console.log('resolve ' + e.message); }
+  }
+  if (c) { goTo({ name: name || 'Ubicación compartida', sub: '', lon: c[0], lat: c[1] }); return; }
+  // Sin coordenadas: buscar el texto (por ejemplo una dirección)
+  let q = (url ? t.replace(url, '') : t).replace(/\s+/g, ' ').trim();
+  const qm = url && url.match(/[?&](?:q|query|daddr|destination)=([^&]+)/); if (qm) q = qm[1];
+  if (!q && name) q = name;
+  if (q) { $('#q').value = q.slice(0, 120); showSearch($('#q').value); }
+  else toast('No he podido leer esa ubicación');
+}
+window.onShared = onShared;
+
 /* ====================== Botón atrás de Android ====================== */
 window.onBack = () => {
   if (sheetOpen()) { closeSheet(); return true; }
+  if (pickFor) { pickCancel(); return true; }
   if (document.activeElement === $('#q')) { $('#q').blur(); return true; }
   if (preview) { cancelPreview(); return true; }
   if (navigating) { $('#btnStop').onclick(); return true; }

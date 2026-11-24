@@ -54,6 +54,8 @@ public class MainActivity extends Activity implements LocationListener {
     private ToneGenerator tone;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService pool = Executors.newFixedThreadPool(4);
+    private String pendingShare = null;
+    private boolean pageReady = false;
 
     private static final OkHttpClient HTTP = new OkHttpClient.Builder()
             .connectTimeout(12, TimeUnit.SECONDS)
@@ -108,6 +110,26 @@ public class MainActivity extends Activity implements LocationListener {
         lm = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
         askLocation();
         handler.postDelayed(() -> checkUpdate(false), 4000);
+        takeIntent(getIntent());
+    }
+
+    // ---------- Ubicaciones compartidas (WhatsApp, Google Maps, geo:) ----------
+
+    private void takeIntent(Intent i) {
+        if (i == null) return;
+        String data = null;
+        if (Intent.ACTION_VIEW.equals(i.getAction()) && i.getData() != null) data = i.getData().toString();
+        else if (Intent.ACTION_SEND.equals(i.getAction())) {
+            CharSequence t = i.getCharSequenceExtra(Intent.EXTRA_TEXT);
+            if (t != null) data = t.toString();
+        }
+        if (data == null || data.isEmpty()) return;
+        if (pageReady && web != null) {
+            String js = "window.onShared&&window.onShared(" + JSONObject.quote(data) + ")";
+            web.evaluateJavascript(js, null);
+        } else {
+            pendingShare = data;
+        }
     }
 
     // ---------- GPS ----------
@@ -200,6 +222,53 @@ public class MainActivity extends Activity implements LocationListener {
                     reply(id, false, String.valueOf(e.getMessage()));
                 }
             });
+        }
+
+        @JavascriptInterface
+        public void fuel(String id) {
+            pool.execute(() -> {
+                String err = "sin datos";
+                for (String u : Fuel.URLS) {
+                    Request req = new Request.Builder().url(u).header("Accept", "application/json")
+                            .header("User-Agent", "ProMaps (Android)").build();
+                    try (Response r = HTTP.newCall(req).execute()) {
+                        if (!r.isSuccessful() || r.body() == null) { err = "HTTP " + r.code(); continue; }
+                        JSONArray arr = Fuel.parse(r.body().byteStream());
+                        if (arr.length() == 0) { err = "lista vacía"; continue; }
+                        reply(id, true, arr.toString());
+                        return;
+                    } catch (Exception e) {
+                        err = String.valueOf(e.getMessage());
+                    }
+                }
+                reply(id, false, err);
+            });
+        }
+
+        /** Sigue las redirecciones de un enlace corto (maps.app.goo.gl) y devuelve la dirección final */
+        @JavascriptInterface
+        public void resolve(String id, String url) {
+            pool.execute(() -> {
+                Request req = new Request.Builder().url(url)
+                        .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36")
+                        .build();
+                try (Response r = HTTP.newCall(req).execute()) {
+                    String fin = r.request().url().toString();
+                    String body = "";
+                    try { if (r.body() != null) { body = r.body().string(); if (body.length() > 20000) body = body.substring(0, 20000); } } catch (Exception ignored) { }
+                    reply(id, true, fin + "\n" + body);
+                } catch (Exception e) {
+                    reply(id, false, String.valueOf(e.getMessage()));
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public String takeShared() {
+            pageReady = true;
+            String s = pendingShare;
+            pendingShare = null;
+            return s == null ? "" : s;
         }
 
         @JavascriptInterface
@@ -304,7 +373,8 @@ public class MainActivity extends Activity implements LocationListener {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        if (intent == null || !Updater.ACTION_STATUS.equals(intent.getAction())) return;
+        if (intent == null) return;
+        if (!Updater.ACTION_STATUS.equals(intent.getAction())) { takeIntent(intent); return; }
         int status = intent.getIntExtra(android.content.pm.PackageInstaller.EXTRA_STATUS, -999);
         if (status == android.content.pm.PackageInstaller.STATUS_PENDING_USER_ACTION) {
             Intent confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT);

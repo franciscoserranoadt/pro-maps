@@ -19,6 +19,14 @@
   <button id="btnSettings" class="iconbtn" title="Ajustes">⚙️</button>
 </div>
 
+<!-- Accesos rápidos -->
+<div id="quick">
+  <button class="qchip" id="qCasa">🏠 Casa</button>
+  <button class="qchip" id="qTrabajo">💼 Trabajo</button>
+  <button class="qchip" id="qFav">⭐ Favoritos</button>
+  <button class="qchip" id="qGas">⛽ Gasolineras</button>
+</div>
+
 <!-- Indicación de la próxima maniobra (navegando) -->
 <div id="banner" class="hidden">
   <div id="bArrow">⬆</div>
@@ -39,9 +47,11 @@
 
 <!-- Velocímetro -->
 <div id="speed"><div id="spdVal">0</div><div class="spdU">km/h</div></div>
+<div id="limit" class="hidden">50</div>
 
 <!-- Botones laterales -->
 <div id="fabs">
+  <button id="btnGas" class="fab hidden" title="Gasolineras">⛽</button>
   <button id="btnTraffic" class="fab" title="Tráfico">🚦</button>
   <button id="btnLayers" class="fab" title="Capas">🗺️</button>
   <button id="btnReport" class="fab big warn" title="Avisar">⚠️</button>
