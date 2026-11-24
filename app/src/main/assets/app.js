@@ -2635,9 +2635,12 @@ async function camTest() {
   h += '<div class="sec">Cámaras que puede abrir Pro Maps</div><div id="camList" class="muted">Pidiendo permiso para usar la cámara…</div>';
   openSheet(h);
   try {
+    // la cámara se deja abierta mientras se piden los nombres (si no, algunos Android los dan vacíos)
     const s0 = await navigator.mediaDevices.getUserMedia({ video: true });
+    let devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
     s0.getTracks().forEach(t => t.stop());
-    const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+    // si no hay identificadores, se ofrecen las opciones por tipo de cámara
+    if (!devs.length || devs.every(d => !d.deviceId)) devs = [{ label: 'Cámara trasera / externa', facing: 'environment' }, { label: 'Cámara frontal', facing: 'user' }, { label: 'Cámara por defecto', any: true }];
     const el = document.getElementById('camList'); if (!el) return;
     if (!devs.length) { el.textContent = 'Ninguna. La dash cam solo la puede usar la app de Junsun.'; return; }
     el.innerHTML = devs.map((d, i) => '<div class="row" data-cam="' + i + '"><div class="ri">🎥</div><div class="rt"><div class="r1">' + esc(d.label || ('Cámara ' + (i + 1))) +
@@ -2652,8 +2655,17 @@ async function camTest() {
   }
 }
 async function camOpen(dev) {
+  // se prueba de lo más concreto a lo más general, para que nunca falle por pedir demasiado
+  const tries = [];
+  if (dev.deviceId) { tries.push({ video: { deviceId: { exact: dev.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } } }); tries.push({ video: { deviceId: dev.deviceId } }); }
+  if (dev.facing) tries.push({ video: { facingMode: dev.facing } });
+  tries.push({ video: true });
+  let lastErr = null;
+  for (const c of tries) {
+    try { camStream = await navigator.mediaDevices.getUserMedia(c); lastErr = null; break; } catch (e) { lastErr = e; if (e.name === 'NotAllowedError' || e.name === 'NotReadableError') break; }
+  }
   try {
-    camStream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: dev.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } } });
+    if (lastErr) throw lastErr;
     const v = $('#camVideo'); v.srcObject = camStream;
     $('#camView').classList.remove('hidden');
     v.onloadedmetadata = () => { $('#camInfo').textContent = '🎥 ' + (dev.label || 'Cámara') + ' · ' + v.videoWidth + '×' + v.videoHeight + ' · ¡Funciona! Mándame una captura'; };

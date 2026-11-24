@@ -1,1 +1,1 @@
-• Nuevo: Ajustes → Sobre la app → 📷 Probar la dash cam (para ver si se puede navegar con la imagen de la cámara).
+• Prueba de la dash cam: arreglado el error «OverconstrainedError» al abrir la cámara.
