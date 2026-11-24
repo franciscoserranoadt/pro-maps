@@ -14,7 +14,7 @@ const DEF = { voice: true, radars: true, semaforos: true, incid: true, reports: 
   fuel: 'g95', gas: true, limit: true, limitWarn: true, ttinc: true,
   b3d: true, wxfx: true, wxchip: true, trees: false, lamps: false, car: 'arrow', carColor: '#33ccff', lanes: true,
   label: 'c', zbe: true, zbeShow: true, zbeAvoid: false, parkNear: true, syncCode: '', darkLvl: 'mas',
-  fatigue: true, hazards: true, curves: true, offlineRoute: true };
+  fatigue: true, hazards: true, curves: true, offlineRoute: true, routeType: 'fastest' };
 const cfg = Object.assign({}, DEF, store.get('cfg', {}));
 const saveCfg = () => store.set('cfg', cfg);
 
@@ -640,7 +640,8 @@ async function showSearch(q) {
 }
 
 /* ====================== Rutas ====================== */
-let navAlts = [], altBusy = false, altAt = 0, routeMode = 'car', viaPts = null;
+let navAlts = [], altBusy = false, altAt = 0, routeMode = 'car', viaPts = null, tripKind = null;
+const routeKind = () => tripKind || cfg.routeType || 'fastest';
 let dest = null, stops = [], routes = [], selIdx = 0, preview = false, active = null, navigating = false, pendingGo = null;
 
 const VAL_ARROW = { 1: 'start', 2: 'start', 3: 'start', 4: 'dest', 5: 'dest', 6: 'dest', 7: 'straight', 8: 'straight', 9: 'slight_right',
@@ -656,7 +657,8 @@ async function routeValhalla(from, pts, vias) {
   const walk = routeMode === 'walk';
   if (walk) { delete loc0.heading; delete loc0.heading_tolerance; }
   const req = { locations: [loc0].concat(pts.map(p => ({ lat: p[1], lon: p[0], type: 'break' }))), costing: walk ? 'pedestrian' : 'auto',
-    costing_options: walk ? { pedestrian: {} } : { auto: { use_tolls: cfg.tolls ? 0 : 0.5, use_highways: cfg.highways ? 0 : 1 } },
+    costing_options: walk ? { pedestrian: {} } : { auto: Object.assign({ use_tolls: cfg.tolls ? 0 : 0.5, use_highways: cfg.highways ? 0 : 1 },
+      routeKind() === 'shortest' ? { shortest: true } : {}) },
     directions_options: { language: 'es-ES', units: 'kilometers' } };
   if (!walk && cfg.zbeAvoid && zbeMustAvoid()) {
     const ex = zbeExclude([from].concat(pts));
@@ -708,7 +710,7 @@ async function routeTomTom(from, pts) {
 }
 async function routeTomTom2(from, pts, withLanes) {
   let url = 'https://api.tomtom.com/routing/1/calculateRoute/' + [from].concat(pts).map(p => p[1] + ',' + p[0]).join(':') +
-    '/json?key=' + encodeURIComponent(cfg.tomtom) + '&traffic=true&travelMode=car&routeType=fastest&instructionsType=text&language=es-ES' +
+    '/json?key=' + encodeURIComponent(cfg.tomtom) + '&traffic=true&travelMode=car&routeType=' + routeKind() + '&instructionsType=text&language=es-ES' +
     (pts.length === 1 ? '&maxAlternatives=2' : '');
   if (cfg.tolls) url += '&avoid=tollRoads';
   if (cfg.highways) url += '&avoid=motorways';
@@ -805,7 +807,7 @@ function setDestMarker(d) {
 }
 async function goTo(d, keepStops, walk) {
   if (navigating) stopNav(true);
-  if (!keepStops) { stops = []; routeMode = walk ? 'walk' : 'car'; viaPts = null; }
+  if (!keepStops) { stops = []; routeMode = walk ? 'walk' : 'car'; viaPts = null; tripKind = null; }
   dest = d; if (!d.park) addRecent({ name: d.name, sub: d.sub || '', lon: d.lon, lat: d.lat });
   setDestMarker(d);
   if (!me) {
@@ -840,6 +842,8 @@ function routeSheet() {
   const z = routes[selIdx] && routes[selIdx].zbe;
   if (z) h += '<div class="row"><div class="ri">🌿</div><div class="rt"><div class="r1">Entra en la ZBE ' + esc(z.name) + '</div><div class="r2">' +
     (zbeMustAvoid() ? '⚠️ Con etiqueta ' + LABEL_NAME[cfg.label] + ' puede que no puedas entrar' : 'Con etiqueta ' + LABEL_NAME[cfg.label] + ' puedes entrar') + '</div></div></div>';
+  if (routeMode === 'car') h += '<div class="chips">' + [['fastest', '⚡ Más rápida'], ['shortest', '📏 Más corta']]
+    .map(([k, n]) => '<button class="chip" data-rk="' + k + '"' + (routeKind() === k ? ' style="background:#1a73e8"' : '') + '>' + n + '</button>').join('') + '</div>';
   if (cfg.parkNear && routeMode === 'car') h += '<div class="row" id="rPark"><div class="ri">🅿️</div><div class="rt"><div class="r1">Aparcamientos cerca del destino</div><div class="r2" id="rParkN">Buscando…</div></div></div>';
   stops.forEach((p, i) => {
     h += '<div class="row"><div class="ri">📍</div><div class="rt"><div class="r1">Parada ' + (i + 1) + ': ' + esc(p.name) + '</div>' +
@@ -850,7 +854,7 @@ function routeSheet() {
     const t2 = fmtDist(r.len) + ' · llegada ' + eta + (r.delay > 60 ? ' · 🔴 +' + fmtTime(r.delay) + ' atasco' : '');
     const t3 = '📷 ' + r.nCam + ' radar' + (r.nCam === 1 ? '' : 'es') + ' · ⚠️ ' + r.nInc + ' aviso' + (r.nInc === 1 ? '' : 's');
     h += '<div class="row' + (i === selIdx ? ' sel' : '') + '" data-r="' + i + '"><div class="ri">' + (i === 0 ? '⭐' : '↪️') + '</div><div class="rt"><div class="r1">' +
-      fmtTime(r.time) + (r.time === best && routes.length > 1 ? ' · la más rápida' : '') + '</div><div class="r2">' + t2 + '</div><div class="r2">' + t3 + '</div></div></div>';
+      fmtTime(r.time) + (routes.length > 1 ? (routeKind() === 'shortest' ? (r.len === Math.min(...routes.map(x => x.len)) ? ' · la más corta' : '') : (r.time === best ? ' · la más rápida' : '')) : '') + '</div><div class="r2">' + t2 + '</div><div class="r2">' + t3 + '</div></div></div>';
   });
   h += '<button class="btn" id="rGo">▶ Iniciar</button>' +
     '<div class="btnrow"><button class="btn alt" id="rStop">➕ Parada</button><button class="btn alt" id="rGas">⛽ Gasolineras</button><button class="btn alt" id="rList">📋 Detalles</button></div>' +
@@ -862,6 +866,12 @@ function routeSheet() {
   $('#rGo').onclick = () => { sheetOnClose = null; closeSheet(); startNav(); };
   $('#rList').onclick = () => stepsSheet(routes[selIdx], false);
   $('#rStop').onclick = () => startPick('stop');
+  document.querySelectorAll('#sheetBody [data-rk]').forEach(b => b.onclick = () => {
+    if (routeKind() === b.dataset.rk) return;
+    tripKind = b.dataset.rk; const keepVia = viaPts, keepKind = tripKind;
+    goTo(dest, true).then(() => { tripKind = keepKind; });
+    viaPts = keepVia;
+  });
   if ($('#rSave')) $('#rSave').onclick = () => saveRouteSheet(routes[selIdx]);
   if ($('#rPark')) { $('#rPark').onclick = () => parkListSheet(true); loadParkings(dest).then(() => { const e = $('#rParkN'); if (e) e.textContent = parkings.length ? parkings.length + ' a menos de 800 m · toca para verlos' : 'No hay datos de aparcamientos aquí'; }); }
   $('#rGas').onclick = () => gasSheet(routes[selIdx], 0);
@@ -1177,6 +1187,7 @@ function settingsSheet() {
   const ver = N ? N.version() : 'web';
   openSheet('<div class="sTitle">⚙️ Ajustes</div>' +
     t('voice', '🔊 Indicaciones por voz') + t('beep', '🔔 Pitido en radares y exceso de velocidad') +
+    '<div class="set"><label>🧭 Tipo de ruta por defecto</label><select id="rkSel"><option value="fastest">⚡ La más rápida</option><option value="shortest">📏 La más corta</option></select></div>' +
     t('tolls', '💶 Evitar peajes') + t('highways', '🛣️ Evitar autopistas y autovías') +
     t('limit', '🚫 Mostrar el límite de velocidad de la vía', 'Sale de OpenStreetMap; en algunas calles no hay dato') +
     t('limitWarn', '⚠️ Avisar si paso el límite de la vía') +
@@ -1226,6 +1237,8 @@ function settingsSheet() {
     toast(cfg.tomtom ? 'Clave de TomTom guardada' : 'Clave quitada'); if (had !== !!cfg.tomtom || cfg.tomtom) applyStyle(true);
     if (cfg.tomtom) loadTT(); else { ttInc = []; refreshPois(); }
   };
+  $('#rkSel').value = cfg.routeType;
+  $('#rkSel').onchange = e => { cfg.routeType = e.target.value; saveCfg(); };
   $('#labelSel').value = cfg.label;
   $('#labelSel').onchange = e => { cfg.label = e.target.value; saveCfg(); };
   $('#bSync').onclick = syncSheet; $('#bStats').onclick = statsSheet;
@@ -2305,7 +2318,7 @@ function wasDeclined(a) {
   return declinedAlts.some(d => dist(d.mid, s.mid) < 1500 && Math.abs(d.len - s.len) < Math.max(1500, s.len * 0.1));
 }
 function maybeOfferAlt() {
-  if (!navigating || !active || altPromptFor || !navAlts.length) return;
+  if (!navigating || !active || altPromptFor || !navAlts.length || routeKind() === 'shortest') return;
   const restA = active.time * Math.max(0, active.total - nav.along) / active.total;
   let best = null;
   for (const a of navAlts) {
