@@ -293,7 +293,10 @@ async function boot() {
   map.on('error', e => console.log('map error ' + (e && e.error && e.error.message)));
   map.on('dragstart', () => setFollow(false));
   map.on('click', 'pois', e => { const f = e.features && e.features[0]; if (f) showPoi(f); });
-  map.on('click', 'routeAlt', e => { const f = e.features && e.features[0]; if (f && preview) selectRoute(f.properties.i); });
+  map.on('click', 'routeAltHit', e => {
+    const f = e.features && e.features[0]; if (!f) return;
+    if (preview) selectRoute(f.properties.i); else if (navigating) altSheet(+f.properties.i);
+  });
   map.on('mouseenter', 'pois', () => map.getCanvas().style.cursor = 'pointer');
   map.on('click', 'gas', e => { const f = e.features && e.features[0]; if (f) showGas(f.properties.id); });
   setupLongPress();
@@ -343,8 +346,11 @@ function onStyleLoad() {
     map.addLayer({ id: 'traffic', type: 'raster', source: 'traffic', paint: { 'raster-opacity': 0.85 },
       layout: { visibility: cfg.traffic ? 'visible' : 'none' } });
   }
+  map.addLayer({ id: 'routeAltCase', type: 'line', source: 'routeAlt', layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': '#4c1d95', 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 6, 16, 13], 'line-opacity': 0.75 } });
   map.addLayer({ id: 'routeAlt', type: 'line', source: 'routeAlt', layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': '#7f93b3', 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 4, 16, 10], 'line-opacity': 0.9 } });
+    paint: { 'line-color': '#b39dfa', 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 3.5, 16, 8], 'line-opacity': 0.95 } });
+  map.addLayer({ id: 'routeAltHit', type: 'line', source: 'routeAlt', paint: { 'line-color': '#000', 'line-width': 34, 'line-opacity': 0.01 } });
   map.addLayer({ id: 'routeCase', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: { 'line-color': '#0b3d91', 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 7, 16, 16] } });
   map.addLayer({ id: 'routeLine', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' },
@@ -367,6 +373,9 @@ function onStyleLoad() {
       'text-field': ['get', 'p'], 'text-size': 13, 'text-offset': [0, 1.5], 'text-anchor': 'top', 'text-font': ['Noto Sans Bold'],
       'text-allow-overlap': false, visibility: cfg.gas ? 'visible' : 'none' },
     paint: { 'text-color': ['get', 'c'], 'text-halo-color': '#111', 'text-halo-width': 2 } }, 'pois');
+  map.addLayer({ id: 'routeAltLabel', type: 'symbol', source: 'routeAlt', layout: { 'symbol-placement': 'line-center', 'text-field': ['get', 'label'],
+      'text-size': 15, 'text-font': ['Noto Sans Bold'], 'text-allow-overlap': true, 'text-ignore-placement': true, 'text-keep-upright': true },
+    paint: { 'text-color': '#ffffff', 'text-halo-color': '#5b21b6', 'text-halo-width': 3 } });
   refreshPois();
   refreshGas();
   drawRoutes();
@@ -462,9 +471,14 @@ function rowHtml(i, icon, t1, t2, right) {
     '</div>' + (t2 ? '<div class="r2">' + esc(t2) + '</div>' : '') + '</div>' + (right ? '<div class="rr">' + right + '</div>' : '') + '</div>';
 }
 function bindRows(list) {
-  document.querySelectorAll('#sheetBody .row[data-i]').forEach(el => el.onclick = () => {
-    const d = list[+el.dataset.i]; if (!d) return;
+  document.querySelectorAll('#sheetBody .row[data-i]').forEach(el => el.onclick = async () => {
+    let d = list[+el.dataset.i]; if (!d) return;
     if (d.fav && d.lat == null) { startPick(d.fav); return; }
+    if (d.cc && d.lat == null) {
+      el.querySelector('.r2') && (el.querySelector('.r2').textContent = 'Buscando el número exacto…');
+      try { d = await ccFind(d); } catch (e) { }
+      if (d.lat == null) { toast('No he encontrado esa dirección exacta. Prueba con otra.'); return; }
+    }
     $('#q').blur();
     if (pickFor) { const k = pickFor; pickFor = null; sheetOnClose = null; closeSheet(); $('#q').value = ''; finishPick(k, d); return; }
     closeSheet(); goTo(d);
@@ -498,18 +512,33 @@ async function showSearch(q) {
   const c = me || map.getCenter().toArray();
   try {
     const url = 'https://photon.komoot.io/api/?limit=10&q=' + encodeURIComponent(q) + '&lat=' + c[1].toFixed(4) + '&lon=' + c[0].toFixed(4);
-    const j = await getJSON(url);
+    const hasNum = /\d/.test(q);
+    const [pj, cj] = await Promise.all([getJSON(url).catch(() => ({ features: [] })), searchCarto(q).catch(() => [])]);
+    const j = pj;
     if (seq !== searchSeq) return;
     const seen = {};
+    const ccList = cj.slice();
+    // Con número: primero las direcciones exactas (portales) de CartoCiudad
+    if (hasNum) for (const d of ccList.filter(x => x.exact)) { list.push(d); seen[d.name + d.sub] = 1; }
     for (const f of j.features || []) {
       const p = f.properties || {}, [lon, lat] = f.geometry.coordinates;
       const name = p.name || ((p.street || '') + (p.housenumber ? ' ' + p.housenumber : '')) || p.city || 'Sin nombre';
       const sub = [p.name && p.street ? p.street + (p.housenumber ? ' ' + p.housenumber : '') : '', p.city || p.district || '', p.state || '',
         p.country && p.country !== 'España' ? p.country : ''].filter(Boolean).join(', ');
       const key = name + sub; if (seen[key]) continue; seen[key] = 1;
-      const d = { name, sub, lon, lat }; list.push(d);
+      const d = { name, sub, lon, lat, icon: p.housenumber ? '🏠' : (p.osm_key === 'highway' ? '🛣️' : p.osm_key === 'place' ? '🏙️' : '📍') };
+      // una calle sin número cuando has escrito un número: mejor la de CartoCiudad
+      if (hasNum && !p.housenumber && p.osm_key === 'highway' && ccList.some(x => x.exact)) continue;
+      if (list.some(x => x.lat != null && Math.abs(x.lat - lat) < 3e-4 && Math.abs(x.lon - lon) < 3e-4 && x.name.split(',')[0].toLowerCase() === name.toLowerCase())) continue;
+      list.push(d);
     }
-    list.forEach((d, i) => { html += rowHtml(i, '📍', d.name, d.sub, me ? fmtDist(dist(me, [d.lon, d.lat])) : ''); });
+    for (const d of ccList) {
+      if (hasNum && d.exact) continue;
+      const key = d.name + d.sub; if (seen[key]) continue; seen[key] = 1;
+      if (list.length >= 14) break;
+      list.push(d);
+    }
+    list.forEach((d, i) => { html += rowHtml(i, d.icon || '📍', d.name, d.sub, me && d.lat != null ? fmtDist(dist(me, [d.lon, d.lat])) : ''); });
     if (!list.length) html += '<div class="muted">No he encontrado nada. Prueba con la calle y el pueblo, p. ej. «Calle Mayor 5 Alcorcón».</div>';
     openSheet(html, pickFor ? pickCancel : null); bindRows(list);
   } catch (e) {
@@ -518,6 +547,7 @@ async function showSearch(q) {
 }
 
 /* ====================== Rutas ====================== */
+let navAlts = [], altBusy = false, altAt = 0;
 let dest = null, stops = [], routes = [], selIdx = 0, preview = false, active = null, navigating = false, pendingGo = null;
 
 const VAL_ARROW = { 1: 'start', 2: 'start', 3: 'start', 4: 'dest', 5: 'dest', 6: 'dest', 7: 'straight', 8: 'straight', 9: 'slight_right',
@@ -628,13 +658,16 @@ function indexRoutePois(r) {
 function drawRoutes() {
   if (!map || !map.getSource('route')) return;
   const line = r => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: r.coords } });
+  const diff = (t, base) => { const m = Math.round((t - base) / 60); return m > 0 ? '+' + m + ' min' : m < 0 ? m + ' min' : 'igual'; };
   if (navigating && active) {
     map.getSource('route').setData({ type: 'FeatureCollection', features: [line(active)] });
-    map.getSource('routeAlt').setData({ type: 'FeatureCollection', features: [] });
+    const restT = active.time * Math.max(0, active.total - nav.along) / active.total;
+    map.getSource('routeAlt').setData({ type: 'FeatureCollection',
+      features: navAlts.map((r, i) => Object.assign(line(r), { properties: { i, label: diff(r.time, restT) } })) });
   } else if (preview && routes.length) {
     map.getSource('route').setData({ type: 'FeatureCollection', features: [line(routes[selIdx])] });
     map.getSource('routeAlt').setData({ type: 'FeatureCollection',
-      features: routes.map((r, i) => Object.assign(line(r), { properties: { i } })).filter((f, i) => i !== selIdx) });
+      features: routes.map((r, i) => Object.assign(line(r), { properties: { i, label: diff(r.time, routes[selIdx].time) } })).filter((f, i) => i !== selIdx) });
   } else {
     map.getSource('route').setData({ type: 'FeatureCollection', features: [] });
     map.getSource('routeAlt').setData({ type: 'FeatureCollection', features: [] });
@@ -723,8 +756,10 @@ function cancelPreview() {
 /* ====================== Navegación ====================== */
 const nav = { idx: 0, step: 0, off: 0, lastReroute: 0, said: {}, along: 0, arrived: false };
 function startNav() {
-  active = routes[selIdx]; routes = []; preview = false; navigating = true;
+  active = routes[selIdx]; preview = false; navigating = true;
   Object.assign(nav, { idx: 0, step: 0, off: 0, lastReroute: Date.now(), said: {}, along: 0, arrived: false });
+  navAlts = routes.filter((r, i) => i !== selIdx).map(r => markDivergence(r, 0)).filter(Boolean);
+  routes = []; altAt = Date.now();
   document.body.classList.add('nav'); $('#btnGas').classList.remove('hidden');
   $('#searchBar').classList.add('hidden'); $('#banner').classList.remove('hidden'); $('#navBar').classList.remove('hidden');
   drawRoutes(); setFollow(true);
@@ -733,7 +768,7 @@ function startNav() {
   if (me) navUpdate();
 }
 function stopNav(silent) {
-  navigating = false; active = null; dest = null; stops = []; setDestMarker(null);
+  navigating = false; active = null; dest = null; stops = []; navAlts = []; setDestMarker(null);
   document.body.classList.remove('nav'); $('#btnGas').classList.add('hidden');
   $('#searchBar').classList.remove('hidden'); $('#banner').classList.add('hidden'); $('#navBar').classList.add('hidden');
   drawRoutes(); setFollow(true);
@@ -755,6 +790,7 @@ async function reroute() {
     active = prepRoute(rs[0]);
     Object.assign(nav, { idx: 0, step: 0, off: 0, along: 0 });
     for (const k in nav.said) if (k.startsWith('s')) delete nav.said[k];
+    navAlts = rs.slice(1).map(r => markDivergence(prepRoute(r), 0)).filter(Boolean); altAt = Date.now();
     drawRoutes();
   } catch (e) { console.log('reroute ' + e.message); }
 }
@@ -779,6 +815,11 @@ function navUpdate() {
     const A = r.coords[nav.idx], B = r.coords[nav.idx + 1];
     meMarker.setLngLat([A[0] + (B[0] - A[0]) * best.t, A[1] + (B[1] - A[1]) * best.t]);
   }
+  // Alternativas: se quitan las que ya has dejado atrás; se buscan nuevas cada 2 min
+  const nAlt = navAlts.length;
+  navAlts = navAlts.filter(a => nav.along < a.divAt + 40);
+  if (nAlt !== navAlts.length || !navUpdate.lastDraw || Date.now() - navUpdate.lastDraw > 30000) { navUpdate.lastDraw = Date.now(); drawRoutes(); }
+  if (!altBusy && Date.now() - altAt > 120000 && Date.now() - nav.lastReroute > 30000 && r.total - nav.along > 3000) refreshAlts();
   // 2) Próxima maniobra (y paradas intermedias superadas)
   while (nav.step < r.steps.length - 1 && r.steps[nav.step].at < nav.along + 8) {
     if (r.steps[nav.step].kind === 'stop' && stops.length) {
@@ -976,7 +1017,7 @@ function settingsSheet() {
     '<button class="btn alt" id="bRad">📷 Actualizar radares ahora</button>' +
     '<button class="btn alt" id="bUpd">🔄 Buscar actualización de la app (v' + esc(ver) + ')</button>' +
     '<button class="btn alt" id="bTest">🔊 Probar la voz</button>' +
-    '<div class="muted" style="margin-top:12px">Mapa © OpenStreetMap y OpenFreeMap · Rutas Valhalla (FOSSGIS) · Incidencias DGT (datos abiertos) · Búsqueda Photon. ' +
+    '<div class="muted" style="margin-top:12px">Mapa © OpenStreetMap y OpenFreeMap · Rutas Valhalla (FOSSGIS) · Incidencias DGT (datos abiertos) · Búsqueda Photon y CartoCiudad (IGN). ' +
     'Precios de carburantes: Ministerio (datos abiertos). Los radares móviles reales solo se pueden saber si alguien los avisa: usa el botón ⚠️.</div>');
   document.querySelectorAll('#sheetBody input[type=checkbox]').forEach(i => i.onchange = () => { cfg[i.dataset.k] = i.checked; saveCfg(); });
   $('#ttKey').onchange = e => {
@@ -993,6 +1034,89 @@ function settingsSheet() {
 }
 $('#btnSettings').onclick = settingsSheet;
 
+
+
+/* ====================== Rutas alternativas durante el viaje ====================== */
+/** Calcula dónde se separa «alt» de la ruta activa. Devuelve null si es casi igual. */
+function markDivergence(alt, alongNow) {
+  if (!active || !alt || !alt.coords.length) return alt;
+  const samp = [];
+  for (let i = 0, last = -1e9; i < active.coords.length; i++) if (active.cum[i] - last >= 25) { samp.push(active.coords[i]); last = active.cum[i]; }
+  const near = pt => { for (const q of samp) if (Math.abs(q[1] - pt[1]) < 0.0006 && dist(q, pt) < 40) return true; return false; };
+  let divCum = null, offLen = 0, lastCum = -1e9;
+  for (let i = 0; i < alt.coords.length; i++) {
+    if (alt.cum[i] - lastCum < 50) continue; lastCum = alt.cum[i];
+    if (!near(alt.coords[i])) { if (divCum == null) divCum = alt.cum[i]; offLen += 50; }
+  }
+  if (divCum == null || offLen < Math.min(800, alt.total * 0.08)) return null; // prácticamente la misma ruta
+  alt.divAt = alongNow + Math.max(0, divCum - 50);
+  return alt;
+}
+async function refreshAlts() {
+  if (!navigating || !me || !dest) return;
+  altBusy = true; altAt = Date.now();
+  try {
+    const rs = await calcRoutes(me);
+    if (!navigating) return;
+    navAlts = rs.map(r => markDivergence(prepRoute(r), nav.along)).filter(Boolean).slice(0, 2);
+    drawRoutes();
+  } catch (e) { console.log('alternativas ' + e.message); }
+  altBusy = false;
+}
+function altSheet(i) {
+  const a = navAlts[i]; if (!a || !active) return;
+  const restA = active.time * Math.max(0, active.total - nav.along) / active.total;
+  const d = Math.round((a.time - restA) / 60);
+  const eta = new Date(Date.now() + a.time * 1000).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+  const nCam = (a.pois || []).filter(o => IS_CAMERA(o.p.cat)).length, nInc = (a.pois || []).length - nCam;
+  openSheet('<div class="sTitle">↪️ Ruta alternativa</div>' +
+    '<div class="row"><div class="ri">🕘</div><div class="rt"><div class="r1">Llegada ' + eta + ' · ' + (d > 0 ? d + ' min más lenta' : d < 0 ? (-d) + ' min más rápida' : 'mismo tiempo') +
+    '</div><div class="r2">' + fmtDist(a.len) + ' · 📷 ' + nCam + ' radares · ⚠️ ' + nInc + ' avisos' + (a.delay > 60 ? ' · 🔴 +' + fmtTime(a.delay) + ' atasco' : '') + '</div></div></div>' +
+    '<button class="btn" id="aSw">Cambiar a esta ruta</button><button class="btn alt" id="aNo">Seguir con la mía</button>');
+  $('#aSw').onclick = () => {
+    closeSheet();
+    const old = active;
+    active = a; navAlts.splice(i, 1);
+    Object.assign(nav, { idx: 0, step: 0, off: 0, along: 0, lastReroute: Date.now() });
+    for (const k in nav.said) if (k.startsWith('s')) delete nav.said[k];
+    navAlts = navAlts.concat([markDivergence(old, 0)]).filter(Boolean);
+    say('Ruta cambiada', true); drawRoutes(); navUpdate();
+    setTimeout(refreshAlts, 20000);
+  };
+  $('#aNo').onclick = closeSheet;
+}
+
+/* ====================== Direcciones con número (CartoCiudad, IGN) ====================== */
+const CC = 'https://www.cartociudad.es/geocoder/api/geocoder/';
+const SMALL = { de: 1, del: 1, la: 1, las: 1, el: 1, los: 1, y: 1, a: 1, en: 1 };
+function titleEs(t) {
+  return String(t || '').toLowerCase().replace(/\S+/g, (w, i) => (i > 0 && SMALL[w]) ? w : w.charAt(0).toUpperCase() + w.slice(1));
+}
+const CC_ICON = { portal: '🏠', callejero: '🛣️', carretera: '🛣️', Municipio: '🏙️', municipio: '🏙️', poblacion: '🏘️', toponimo: '📍', codpost: '✉️', provincia: '🗺️', ngbe: '📍' };
+async function searchCarto(q) {
+  const j = await getJSON(CC + 'candidates?limit=8&q=' + encodeURIComponent(q));
+  const num = (q.match(/(?:^|\D)(\d{1,4})(?!\d)/) || [])[1];
+  return (Array.isArray(j) ? j : []).filter(c => c.type !== 'provincia').map(c => {
+    const via = c.tip_via ? titleEs(c.tip_via) + ' ' : '';
+    const portal = c.portalNumber ? ', ' + c.portalNumber + (c.extension ? ' ' + c.extension : '') : '';
+    const name = (c.type === 'portal' || c.type === 'callejero') ? via + titleEs(c.address) + portal : titleEs(c.address);
+    const sub = [c.postalCode, titleEs(c.muni || c.poblacion), titleEs(c.province)].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(', ');
+    const ok = c.lat && c.lng && +c.lat !== 0;
+    return { name, sub, lat: ok ? +c.lat : null, lon: ok ? +c.lng : null, cc: { id: c.id, type: c.type, portal: c.portalNumber || (c.type === 'callejero' ? num : null) },
+      icon: CC_ICON[c.type] || '📍', exact: c.type === 'portal' };
+  });
+}
+/** Para calles sin coordenadas: pide la posición exacta (con el número si lo hay) */
+async function ccFind(d) {
+  let url = CC + 'find?id=' + encodeURIComponent(d.cc.id) + '&type=' + encodeURIComponent(d.cc.type);
+  if (d.cc.portal) url += '&portal=' + encodeURIComponent(d.cc.portal);
+  const j = await getJSON(url);
+  if (j && j.lat && j.lng) {
+    d.lat = +j.lat; d.lon = +j.lng;
+    if (j.portalNumber && !/,\s*\d/.test(d.name)) d.name += ', ' + j.portalNumber;
+  }
+  return d;
+}
 
 /* ====================== Casa, Trabajo y Favoritos ====================== */
 let pickFor = null; // 'casa' | 'trabajo' | 'fav' | 'stop'
