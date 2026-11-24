@@ -11,7 +11,8 @@ const store = {
 };
 const DEF = { voice: true, radars: true, semaforos: true, incid: true, reports: true, beep: true,
   tomtom: '', style: 'auto', tolls: false, highways: false, traffic: false,
-  fuel: 'g95', gas: true, limit: true, limitWarn: true, ttinc: true };
+  fuel: 'g95', gas: true, limit: true, limitWarn: true, ttinc: true,
+  b3d: true, wxfx: true, wxchip: true, trees: false, lamps: false, car: 'arrow', carColor: '#33ccff', lanes: true };
 const cfg = Object.assign({}, DEF, store.get('cfg', {}));
 const saveCfg = () => store.set('cfg', cfg);
 
@@ -259,16 +260,38 @@ function loadScript(src) {
 }
 function loadCss(href) { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = href; document.head.appendChild(l); }
 
+function isNight() {
+  const p = me || store.get('lastPos', [-3.8249, 40.3459]);
+  const t = sunTimes(p[1], p[0], new Date()), now = Date.now();
+  if (!t) { const h = new Date().getHours(); return h >= 20 || h < 8; }
+  return now < t.rise - 15 * 60000 || now > t.set + 15 * 60000;
+}
+/** Salida y puesta de sol (fórmula de la NOAA, precisión de un par de minutos) */
+function sunTimes(lat, lon, date) {
+  const d0 = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+  const n = Math.floor((d0 - Date.UTC(2000, 0, 1, 12)) / 864e5) + 1 - lon / 360;
+  const M = (357.5291 + 0.98560028 * n) % 360, Mr = M * rad;
+  const C = 1.9148 * Math.sin(Mr) + 0.02 * Math.sin(2 * Mr) + 0.0003 * Math.sin(3 * Mr);
+  const L = (M + C + 180 + 102.9372) % 360, Lr = L * rad;
+  const Jt = 2451545 + n + 0.0053 * Math.sin(Mr) - 0.0069 * Math.sin(2 * Lr);
+  const dec = Math.asin(Math.sin(Lr) * Math.sin(23.44 * rad));
+  const cosH = (Math.sin(-0.833 * rad) - Math.sin(lat * rad) * Math.sin(dec)) / (Math.cos(lat * rad) * Math.cos(dec));
+  if (cosH < -1 || cosH > 1) return null;
+  const H = Math.acos(cosH) / rad;
+  const toMs = j => (j - 2440587.5) * 864e5;
+  return { rise: toMs(Jt - H / 360), set: toMs(Jt + H / 360) };
+}
 function wantedStyle() {
   let k = cfg.style;
-  if (k === 'auto') { const h = new Date().getHours(); k = (h >= 20 || h < 8) ? 'dark' : 'light'; }
+  if (k === 'auto') k = isNight() ? 'dark' : 'light';
+  if (k === 'sat' || k === 'satw') k = 'dark';
   if (k === 'dark' && styleOk.dark === false) k = 'light';
   return k;
 }
 let curStyle = '';
 function applyStyle(force) {
   const k = wantedStyle();
-  if (!force && k === curStyle) return;
+  if (!force && k === curStyle) { updateLampGlow(); return; }
   curStyle = k;
   map.setStyle(STYLE[k], { diff: false });
 }
@@ -302,9 +325,8 @@ async function boot() {
   map.on('click', 'gas', e => { const f = e.features && e.features[0]; if (f) showGas(f.properties.id); });
   setupLongPress();
 
-  const el = document.createElement('div'); el.className = 'me';
-  el.innerHTML = '<svg viewBox="0 0 46 46"><circle cx="23" cy="23" r="21" fill="#1a73e8" fill-opacity=".18"/>' +
-    '<path d="M23 6 L35 36 L23 29 L11 36 Z" fill="#33ccff" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/></svg>';
+  const el = document.createElement('div'); el.className = 'me'; el.id = 'meIcon';
+  el.innerHTML = carSvg(cfg.car, cfg.carColor);
   meMarker = new maplibregl.Marker({ element: el, rotationAlignment: 'map', pitchAlignment: 'map' }).setLngLat(start).addTo(map);
 
   map.once('load', () => {
@@ -368,6 +390,7 @@ function onStyleLoad() {
     layout: { 'text-field': ['to-string', ['get', 'max']], 'text-size': 12, 'text-offset': [0, 1.7], 'text-allow-overlap': true,
       'text-font': ['Noto Sans Bold'] },
     paint: { 'text-color': '#111', 'text-halo-color': '#fff', 'text-halo-width': 2 } });
+  addLookLayers();
   if (!map.hasImage('i_gas')) map.addImage('i_gas', makeIcon('⛽', '#2e7d32'), { pixelRatio: 2 });
   map.addSource('gas', { type: 'geojson', data: empty });
   map.addLayer({ id: 'gas', type: 'symbol', source: 'gas', minzoom: 12, layout: {
@@ -607,19 +630,27 @@ function ttKind(m) {
   return 'straight';
 }
 async function routeTomTom(from, pts) {
+  try { return await routeTomTom2(from, pts, true); } catch (e) { console.log('TomTom con carriles: ' + e.message); }
+  return routeTomTom2(from, pts, false);
+}
+async function routeTomTom2(from, pts, withLanes) {
   let url = 'https://api.tomtom.com/routing/1/calculateRoute/' + [from].concat(pts).map(p => p[1] + ',' + p[0]).join(':') +
     '/json?key=' + encodeURIComponent(cfg.tomtom) + '&traffic=true&travelMode=car&routeType=fastest&instructionsType=text&language=es-ES' +
     (pts.length === 1 ? '&maxAlternatives=2' : '');
   if (cfg.tolls) url += '&avoid=tollRoads';
   if (cfg.highways) url += '&avoid=motorways';
   if (speedMs > 3 && heading >= 0) url += '&vehicleHeading=' + Math.round(heading);
+  if (withLanes) url += '&sectionType=lanes&sectionType=traffic';
   const j = await getJSON(url);
   return (j.routes || []).map(r => {
     const coords = [];
     for (const leg of r.legs) for (const p of leg.points) coords.push([p.longitude, p.latitude]);
     const steps = ((r.guidance && r.guidance.instructions) || []).map(ins => ({ i: ins.pointIndex, kind: ttKind(ins.maneuver),
       text: ins.message || '', pre: ins.message || '', alert: ins.message || '', street: ins.street || ins.roadNumbers && ins.roadNumbers[0] || '' }));
-    return { coords, steps, time: r.summary.travelTimeInSeconds, len: r.summary.lengthInMeters, delay: r.summary.trafficDelayInSeconds || 0, src: 'TomTom' };
+    const lanes = (r.sections || []).filter(sc => /LANE/i.test(sc.sectionType || '') && sc.lanes && sc.lanes.length).map(sc => ({
+      i0: sc.startPointIndex, i1: sc.endPointIndex,
+      lanes: sc.lanes.map(l => ({ d: (l.directions || []).map(ttDir), f: l.follow ? ttDir(l.follow) : null })) }));
+    return { coords, steps, lanes, time: r.summary.travelTimeInSeconds, len: r.summary.lengthInMeters, delay: r.summary.trafficDelayInSeconds || 0, src: 'TomTom' };
   });
 }
 /** Ruta desde «from» pasando por las paradas pendientes hasta el destino */
@@ -635,6 +666,7 @@ function prepRoute(r) {
   for (let i = 1; i < r.coords.length; i++) r.cum.push(r.cum[i - 1] + dist(r.coords[i - 1], r.coords[i]));
   r.total = r.cum[r.cum.length - 1] || 1;
   r.steps.forEach(s => { s.i = Math.min(s.i, r.coords.length - 1); s.at = r.cum[s.i]; });
+  (r.lanes || []).forEach(l => { l.at0 = r.cum[Math.min(l.i0, r.coords.length - 1)]; l.at1 = r.cum[Math.min(l.i1, r.coords.length - 1)]; });
   let minX = 180, minY = 90, maxX = -180, maxY = -90;
   for (const c of r.coords) { minX = Math.min(minX, c[0]); maxX = Math.max(maxX, c[0]); minY = Math.min(minY, c[1]); maxY = Math.max(maxY, c[1]); }
   r.bbox = [minX, minY, maxX, maxY];
@@ -782,7 +814,7 @@ function startNav() {
   if (me) navUpdate();
 }
 function stopNav(silent) {
-  navigating = false; active = null; dest = null; stops = []; navAlts = []; hideAltPrompt(); declinedAlts.length = 0; setDestMarker(null);
+  navigating = false; active = null; dest = null; stops = []; navAlts = []; showLanes(null); hideAltPrompt(); declinedAlts.length = 0; setDestMarker(null);
   document.body.classList.remove('nav'); $('#btnGas').classList.add('hidden'); $('#btnSet2').classList.add('hidden'); $('#routeBar').classList.add('hidden');
   $('#searchBar').classList.remove('hidden'); $('#banner').classList.add('hidden'); $('#navBar').classList.add('hidden');
   drawRoutes(); setFollow(true);
@@ -843,6 +875,7 @@ function navUpdate() {
   }
   const st = r.steps[nav.step]; if (!st) return;
   const dm = Math.max(0, st.at - nav.along);
+  updateLanes(r, st, dm);
   const rest = Math.max(0, r.total - nav.along);
   $('#bArrow').textContent = ARROW[st.kind] || '⬆';
   $('#bDist').textContent = fmtDist(dm);
@@ -958,6 +991,8 @@ window.onGps = (lat, lon, spd, brg, acc, isGps) => {
   if (firstFix && !preview) map.jumpTo({ center: pos, zoom: 15.5 });
   if (firstFix && pendingGo) goTo(pendingGo, true);
   updateLimit();
+  if (map && (cfg.trees || cfg.lamps)) maybeLoadNature();
+  if (!onGps.wxAt || now - onGps.wxAt > 10 * 60000) { onGps.wxAt = now; loadWeather(); }
   if (follow && !preview) moveCamera();
   if (!onGps.saved || now - onGps.saved > 60000) { onGps.saved = now; store.set('lastPos', pos); }
 };
@@ -1010,7 +1045,7 @@ $('#btnLayers').onclick = () => {
     t('reports', '🚓 Mis avisos', reports.length + ' activos') +
     t('gas', '⛽ Gasolineras con precio', (fuel.length || 0) + ' gasolineras · se ve al acercar el mapa') +
     '<div class="set"><label>Estilo del mapa</label><select id="stSel"><option value="auto">Automático (oscuro de noche)</option><option value="light">Claro</option>' +
-    '<option value="dark">Oscuro</option><option value="soft">Suave</option></select></div>');
+    '<option value="dark">Oscuro</option><option value="soft">Suave</option><option value="sat">Satélite España (IGN)</option><option value="satw">Satélite mundial</option></select></div>');
   $('#stSel').value = cfg.style;
   $('#stSel').onchange = e => { cfg.style = e.target.value; saveCfg(); applyStyle(true); };
   document.querySelectorAll('#sheetBody input[type=checkbox]').forEach(i => i.onchange = () => {
@@ -1030,20 +1065,36 @@ function settingsSheet() {
     t('limit', '🚫 Mostrar el límite de velocidad de la vía', 'Sale de OpenStreetMap; en algunas calles no hay dato') +
     t('limitWarn', '⚠️ Avisar si paso el límite de la vía') +
     '<div class="set"><label>⛽ Mi combustible</label><select id="fuelSel">' + Object.keys(FUELS).map(k => '<option value="' + k + '">' + FUELS[k].n + '</option>').join('') + '</select></div>' +
+    t('lanes', '🛣️ Carriles al acercarte a un desvío', 'Con TomTom o con los datos de OpenStreetMap') +
     '<button class="btn alt" id="bFavs">⭐ Casa, Trabajo y Favoritos</button>' +
+    '<div class="sec">🎨 Apariencia</div>' +
+    '<div class="set"><label>🗺️ Tipo de mapa</label><select id="styleSel"><option value="auto">Automático (claro de día, oscuro de noche)</option>' +
+    '<option value="light">Claro</option><option value="dark">Oscuro</option><option value="soft">Suave</option><option value="sat">Satélite España (IGN)</option>' +
+    '<option value="satw">Satélite mundial</option></select></div>' +
+    t('b3d', '🏙️ Edificios en 3D', 'Se ven al acercar el mapa e inclinarlo') +
+    t('wxfx', '🌧️ Efectos del tiempo real', 'Lluvia, nieve, niebla o tormenta en pantalla si está pasando donde estás') +
+    t('wxchip', '🌡️ Mostrar el tiempo y la temperatura') +
+    t('trees', '🌳 Árboles', 'De OpenStreetMap, al acercar mucho el mapa') +
+    t('lamps', '💡 Farolas', 'De OpenStreetMap; de noche se iluminan') +
+    '<button class="btn alt" id="bCar">🚗 Cambiar el icono del vehículo</button>' +
+    '<div class="sec">⚙️ Otros</div>' +
     '<div class="set" style="display:block"><label>🚦 Clave de TomTom (opcional, gratis)<small>Activa el tráfico en directo y las rutas que esquivan atascos. Se saca gratis en developer.tomtom.com</small></label>' +
     '<input type="text" id="ttKey" placeholder="Pega aquí tu clave" value="' + esc(cfg.tomtom) + '" autocapitalize="off" autocorrect="off" spellcheck="false"></div>' +
     '<button class="btn alt" id="bRad">📷 Actualizar radares ahora</button>' +
     '<button class="btn alt" id="bUpd">🔄 Buscar actualización de la app (v' + esc(ver) + ')</button>' +
     '<button class="btn alt" id="bTest">🔊 Probar la voz</button>' +
     '<div class="muted" style="margin-top:12px">Mapa © OpenStreetMap y OpenFreeMap · Rutas Valhalla (FOSSGIS) · Incidencias DGT (datos abiertos) · Búsqueda Photon y CartoCiudad (IGN). ' +
-    'Atascos e incidencias en directo: TomTom (con tu clave). Precios de carburantes: Ministerio (datos abiertos). Los radares móviles reales solo se pueden saber si alguien los avisa: usa el botón ⚠️.</div>');
+    'Satélite: PNOA © IGN y Esri. Tiempo: Open-Meteo. Atascos e incidencias en directo: TomTom (con tu clave). Precios de carburantes: Ministerio (datos abiertos). Los radares móviles reales solo se pueden saber si alguien los avisa: usa el botón ⚠️.</div>');
   document.querySelectorAll('#sheetBody input[type=checkbox]').forEach(i => i.onchange = () => { cfg[i.dataset.k] = i.checked; saveCfg(); });
   $('#ttKey').onchange = e => {
     const had = !!cfg.tomtom; cfg.tomtom = e.target.value.trim(); saveCfg();
     toast(cfg.tomtom ? 'Clave de TomTom guardada' : 'Clave quitada'); if (had !== !!cfg.tomtom || cfg.tomtom) applyStyle(true);
     if (cfg.tomtom) loadTT(); else { ttInc = []; refreshPois(); }
   };
+  $('#styleSel').value = cfg.style;
+  $('#styleSel').onchange = e => { cfg.style = e.target.value; saveCfg(); applyStyle(true); };
+  $('#bCar').onclick = carSheet;
+  document.querySelectorAll('#sheetBody input[type=checkbox]').forEach(i => i.addEventListener('change', () => lookChanged(i.dataset.k)));
   $('#fuelSel').value = cfg.fuel;
   $('#fuelSel').onchange = e => { cfg.fuel = e.target.value; saveCfg(); refreshGas(); };
   $('#bFavs').onclick = favSheet;
@@ -1204,6 +1255,257 @@ function updateTramo() {
   if (lim && avg > lim + 2 && secs > 15 && (!tramo.warned || now - tramo.warned > 30000)) {
     tramo.warned = now; beep(2); say('Tu media en el tramo es de ' + Math.round(avg) + '. El límite es ' + lim);
   }
+}
+
+
+/* ====================== Apariencia: satélite, 3D, árboles y farolas ====================== */
+const SAT = {
+  sat: { tiles: ['https://www.ign.es/wmts/pnoa-ma?request=GetTile&service=WMTS&VERSION=1.0.0&Layer=OI.OrthoimageCoverage&Style=default&Format=image/jpeg&TileMatrixSet=GoogleMapsCompatible&TileMatrix={z}&TileRow={y}&TileCol={x}'],
+    attr: 'PNOA © Instituto Geográfico Nacional', max: 19 },
+  satw: { tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], attr: 'Imágenes © Esri', max: 18 }
+};
+function firstSymbolLayer() {
+  const ls = map.getStyle().layers || [];
+  const l = ls.find(x => x.type === 'symbol'); return l ? l.id : undefined;
+}
+function addLookLayers() {
+  const before = firstSymbolLayer();
+  // Satélite por debajo de los nombres de calles
+  if (SAT[cfg.style]) {
+    const S = SAT[cfg.style];
+    map.addSource('sat', { type: 'raster', tiles: S.tiles, tileSize: 256, maxzoom: S.max, attribution: S.attr });
+    map.addLayer({ id: 'sat', type: 'raster', source: 'sat', paint: { 'raster-opacity': 1 } }, before);
+  }
+  // Edificios en 3D
+  const src = Object.keys(map.getStyle().sources || {}).find(k => map.getStyle().sources[k].type === 'vector');
+  const own3d = (map.getStyle().layers || []).filter(l => l.type === 'fill-extrusion').map(l => l.id);
+  own3d.forEach(id => map.setLayoutProperty(id, 'visibility', cfg.b3d ? 'visible' : 'none'));
+  if (!own3d.length && src) {
+    const dark = curStyle === 'dark';
+    map.addLayer({ id: 'b3d', type: 'fill-extrusion', source: src, 'source-layer': 'building', minzoom: 14.5,
+      layout: { visibility: cfg.b3d ? 'visible' : 'none' },
+      paint: { 'fill-extrusion-color': dark ? '#2a3448' : '#d9d3c7', 'fill-extrusion-opacity': 0.85,
+        'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 8], 'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0] } }, before);
+  }
+  // Árboles y farolas
+  if (!map.hasImage('i_tree')) map.addImage('i_tree', makeGlyph('🌳', 44), { pixelRatio: 2 });
+  if (!map.hasImage('i_lamp')) map.addImage('i_lamp', makeLamp(), { pixelRatio: 2 });
+  map.addSource('nature', { type: 'geojson', data: natureGeo() });
+  map.addLayer({ id: 'lampGlow', type: 'circle', source: 'nature', minzoom: 15, filter: ['==', ['get', 'k'], 'l'],
+    layout: { visibility: cfg.lamps ? 'visible' : 'none' },
+    paint: { 'circle-color': '#ffd54f', 'circle-radius': ['interpolate', ['linear'], ['zoom'], 15, 6, 19, 26], 'circle-blur': 1, 'circle-opacity': 0 } });
+  map.addLayer({ id: 'trees', type: 'symbol', source: 'nature', minzoom: 15.5, filter: ['==', ['get', 'k'], 't'],
+    layout: { visibility: cfg.trees ? 'visible' : 'none', 'icon-image': 'i_tree', 'icon-size': ['interpolate', ['linear'], ['zoom'], 15.5, 0.45, 19, 1.1],
+      'icon-allow-overlap': true, 'icon-pitch-alignment': 'viewport', 'icon-anchor': 'bottom' } });
+  map.addLayer({ id: 'lamps', type: 'symbol', source: 'nature', minzoom: 15.5, filter: ['==', ['get', 'k'], 'l'],
+    layout: { visibility: cfg.lamps ? 'visible' : 'none', 'icon-image': 'i_lamp', 'icon-size': ['interpolate', ['linear'], ['zoom'], 15.5, 0.45, 19, 1],
+      'icon-allow-overlap': true, 'icon-pitch-alignment': 'viewport', 'icon-anchor': 'bottom' } });
+  updateLampGlow();
+}
+function updateLampGlow() {
+  if (map && map.getLayer('lampGlow')) map.setPaintProperty('lampGlow', 'circle-opacity', isNight() ? 0.55 : 0);
+}
+function makeGlyph(emoji, S) {
+  const c = document.createElement('canvas'); c.width = c.height = S; const x = c.getContext('2d');
+  x.font = Math.round(S * 0.8) + 'px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(emoji, S / 2, S / 2 + 2);
+  return x.getImageData(0, 0, S, S);
+}
+function makeLamp() {
+  const W = 24, H = 48, c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d');
+  x.fillStyle = '#4a5568'; x.fillRect(W / 2 - 1.5, 10, 3, H - 10); x.fillRect(W / 2 - 5, H - 4, 10, 4);
+  x.fillStyle = '#2d3748'; x.beginPath(); x.moveTo(W / 2 - 7, 10); x.lineTo(W / 2 + 7, 10); x.lineTo(W / 2 + 4, 3); x.lineTo(W / 2 - 4, 3); x.fill();
+  x.fillStyle = '#ffe082'; x.fillRect(W / 2 - 5, 10, 10, 3);
+  return x.getImageData(0, 0, W, H);
+}
+let nature = { c: null, t: [], l: [], at: 0, busy: false };
+const natureGeo = () => ({ type: 'FeatureCollection', features:
+  nature.t.map(p => ({ type: 'Feature', geometry: { type: 'Point', coordinates: p }, properties: { k: 't' } })).concat(
+  nature.l.map(p => ({ type: 'Feature', geometry: { type: 'Point', coordinates: p }, properties: { k: 'l' } }))) });
+async function maybeLoadNature() {
+  if (nature.busy || map.getZoom() < 15 || Date.now() - nature.at < 20000) return;
+  const c = me || map.getCenter().toArray();
+  if (nature.c && dist(nature.c, c) < 350) return;
+  nature.busy = true; nature.at = Date.now();
+  const R = 650, ll = c[1].toFixed(5) + ',' + c[0].toFixed(5);
+  const q = '[out:json][timeout:20];(' + (cfg.trees ? 'node(around:' + R + ',' + ll + ')["natural"="tree"];' : '') +
+    (cfg.lamps ? 'node(around:' + R + ',' + ll + ')["highway"="street_lamp"];' : '') + ');out tags qt 4000;';
+  for (const base of OVERPASS) {
+    try {
+      const j = await getJSON(base + encodeURIComponent(q));
+      const t = [], l = [];
+      for (const e of j.elements || []) (e.tags && e.tags.natural === 'tree' ? t : l).push([e.lon, e.lat]);
+      nature = { c, t, l, at: Date.now(), busy: false };
+      if (map.getSource('nature')) map.getSource('nature').setData(natureGeo());
+      return;
+    } catch (e) { console.log('Árboles/farolas: ' + e.message); }
+  }
+  nature.busy = false;
+}
+function lookChanged(k) {
+  if (!map) return;
+  if (k === 'b3d') { ['b3d'].concat((map.getStyle().layers || []).filter(l => l.type === 'fill-extrusion').map(l => l.id))
+    .forEach(id => map.getLayer(id) && map.setLayoutProperty(id, 'visibility', cfg.b3d ? 'visible' : 'none')); }
+  if (k === 'trees' && map.getLayer('trees')) { map.setLayoutProperty('trees', 'visibility', cfg.trees ? 'visible' : 'none'); nature.c = null; nature.at = 0; }
+  if (k === 'lamps' && map.getLayer('lamps')) { ['lamps', 'lampGlow'].forEach(id => map.setLayoutProperty(id, 'visibility', cfg.lamps ? 'visible' : 'none')); nature.c = null; nature.at = 0; }
+  if ((k === 'trees' || k === 'lamps') && (cfg.trees || cfg.lamps)) { if (map.getZoom() < 15) toast('Acerca el mapa para ver ' + (k === 'trees' ? 'los árboles' : 'las farolas')); maybeLoadNature(); }
+  if (k === 'wxfx' || k === 'wxchip') renderWeather();
+}
+
+/* ====================== Icono del vehículo ====================== */
+const CARS = { arrow: 'Flecha', car: 'Turismo', sport: 'Deportivo', suv: 'Todoterreno', van: 'Furgoneta', moto: 'Moto' };
+const CAR_COLORS = ['#33ccff', '#e53935', '#ffffff', '#212121', '#fdd835', '#43a047', '#fb8c00', '#8e24aa'];
+function carSvg(kind, col) {
+  const dark = '#1b2333', glass = '#9ad0ff', o = 'stroke="#fff" stroke-width="1.6"';
+  const halo = '<circle cx="23" cy="23" r="21" fill="#1a73e8" fill-opacity=".16"/>';
+  let b;
+  switch (kind) {
+    case 'car': b = '<rect x="13" y="5" width="20" height="36" rx="7" fill="' + col + '" ' + o + '/><path d="M15.5 14 Q23 10 30.5 14 L29 20 H17 Z" fill="' + glass + '"/>' +
+      '<rect x="17" y="21" width="12" height="9" rx="2" fill="' + col + '" stroke="' + dark + '" stroke-opacity=".25"/><path d="M17 31 H29 L30 36 Q23 38 16 36 Z" fill="' + glass + '" opacity=".85"/>'; break;
+    case 'sport': b = '<path d="M23 3 C31 3 33 9 33 16 L34 34 C34 40 30 43 23 43 C16 43 12 40 12 34 L13 16 C13 9 15 3 23 3 Z" fill="' + col + '" ' + o + '/>' +
+      '<path d="M16 17 Q23 13 30 17 L28.5 24 H17.5 Z" fill="' + glass + '"/><rect x="18" y="25" width="10" height="7" rx="2" fill="' + dark + '" opacity=".35"/><rect x="21.5" y="4" width="3" height="10" fill="#fff" opacity=".7"/>'; break;
+    case 'suv': b = '<rect x="12" y="4" width="22" height="38" rx="4" fill="' + col + '" ' + o + '/><path d="M14.5 12 H31.5 L30 18 H16 Z" fill="' + glass + '"/>' +
+      '<rect x="16" y="19" width="14" height="16" rx="1.5" fill="' + dark + '" opacity=".3"/><rect x="15" y="21" width="16" height="1.6" fill="#fff" opacity=".6"/><rect x="15" y="31" width="16" height="1.6" fill="#fff" opacity=".6"/>'; break;
+    case 'van': b = '<rect x="12" y="3" width="22" height="40" rx="4" fill="' + col + '" ' + o + '/><path d="M14 9 H32 L31 15 H15 Z" fill="' + glass + '"/>' +
+      '<rect x="15" y="17" width="16" height="23" rx="1" fill="' + dark + '" opacity=".22"/>'; break;
+    case 'moto': b = '<ellipse cx="23" cy="23" rx="6" ry="17" fill="' + dark + '" ' + o + '/><rect x="14" y="13" width="18" height="3" rx="1.5" fill="' + dark + '"/>' +
+      '<ellipse cx="23" cy="22" rx="4.5" ry="9" fill="' + col + '"/><circle cx="23" cy="29" r="4.5" fill="' + col + '" stroke="#fff" stroke-width="1.2"/>'; break;
+    default: b = '<path d="M23 6 L35 36 L23 29 L11 36 Z" fill="' + col + '" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/>';
+  }
+  return '<svg viewBox="0 0 46 46">' + halo + b + '</svg>';
+}
+function carSheet() {
+  let h = '<div class="sTitle">🚗 Tu vehículo en el mapa</div><div class="cars">';
+  for (const k in CARS) h += '<button class="carOpt' + (cfg.car === k ? ' sel' : '') + '" data-car="' + k + '">' + carSvg(k, cfg.carColor) + CARS[k] + '</button>';
+  h += '</div><div class="sec">Color</div><div class="colors">' + CAR_COLORS.map(c => '<button class="col' + (cfg.carColor === c ? ' sel' : '') +
+    '" data-col="' + c + '" style="background:' + c + '"></button>').join('') + '</div><button class="btn" id="carOk">Listo</button>';
+  openSheet(h);
+  document.querySelectorAll('[data-car]').forEach(b => b.onclick = () => { cfg.car = b.dataset.car; saveCfg(); applyCar(); carSheet(); });
+  document.querySelectorAll('[data-col]').forEach(b => b.onclick = () => { cfg.carColor = b.dataset.col; saveCfg(); applyCar(); carSheet(); });
+  $('#carOk').onclick = closeSheet;
+}
+function applyCar() { const el = document.getElementById('meIcon'); if (el) el.innerHTML = carSvg(cfg.car, cfg.carColor); }
+
+/* ====================== Tiempo real (Open-Meteo) y efectos ====================== */
+let wx = null;
+async function loadWeather() {
+  if (!cfg.wxfx && !cfg.wxchip) return renderWeather();
+  const c = me || store.get('lastPos', null); if (!c) return;
+  try {
+    const j = await getJSON('https://api.open-meteo.com/v1/forecast?latitude=' + c[1].toFixed(3) + '&longitude=' + c[0].toFixed(3) +
+      '&current=weather_code,temperature_2m,precipitation,is_day,wind_speed_10m');
+    const cur = j.current || {};
+    wx = { code: cur.weather_code, temp: cur.temperature_2m, rain: cur.precipitation || 0, day: cur.is_day, wind: cur.wind_speed_10m || 0 };
+    renderWeather();
+  } catch (e) { console.log('Tiempo: ' + e.message); }
+}
+function wxKind(code) {
+  if (code == null) return 'none';
+  if (code >= 95) return 'storm';
+  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return 'snow';
+  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return 'rain';
+  if (code === 45 || code === 48) return 'fog';
+  return code === 0 ? 'clear' : 'cloud';
+}
+function wxIntensity(code) {
+  if ([51, 56, 61, 66, 80, 71, 85].includes(code)) return 0.5;
+  if ([53, 63, 81, 73].includes(code)) return 1;
+  return 1.6;
+}
+function renderWeather() {
+  const chip = $('#wx');
+  if (cfg.wxchip && wx) {
+    const k = wxKind(wx.code);
+    const ico = { storm: '⛈️', snow: '❄️', rain: '🌧️', fog: '🌫️', clear: wx.day ? '☀️' : '🌙', cloud: wx.day ? '⛅' : '☁️' }[k] || '';
+    chip.textContent = ico + ' ' + Math.round(wx.temp) + '°'; chip.classList.remove('hidden');
+  } else chip.classList.add('hidden');
+  const k = wx ? wxKind(wx.code) : 'none';
+  fx.set(cfg.wxfx ? k : 'none', wx ? wxIntensity(wx.code) : 1, wx ? wx.wind : 0);
+}
+const fx = (() => {
+  const cv = $('#fx'), ctx = cv.getContext('2d');
+  let kind = 'none', amt = 1, wind = 0, parts = [], raf = 0, flash = 0;
+  const size = () => { cv.width = innerWidth; cv.height = innerHeight; };
+  addEventListener('resize', size); size();
+  function spawn(n) {
+    parts = [];
+    for (let i = 0; i < n; i++) parts.push({ x: Math.random() * cv.width, y: Math.random() * cv.height, v: 0.6 + Math.random() * 0.8, r: 1 + Math.random() * 2.5 });
+  }
+  function frame() {
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    const W = cv.width, H = cv.height, drift = Math.min(wind, 50) / 12;
+    if (kind === 'fog') {
+      const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, 'rgba(220,225,230,.55)'); g.addColorStop(1, 'rgba(220,225,230,.15)');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    }
+    if (kind === 'rain' || kind === 'storm') {
+      ctx.strokeStyle = 'rgba(190,215,255,.55)'; ctx.lineWidth = 1.3; ctx.beginPath();
+      for (const p of parts) {
+        const sp = 14 * p.v + 6; ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - drift * 2 - 1.5, p.y - sp * 1.4);
+        p.y += sp; p.x += drift; if (p.y > H + 20) { p.y = -20; p.x = Math.random() * W; }
+      }
+      ctx.stroke();
+      if (kind === 'storm') {
+        if (flash > 0) { ctx.fillStyle = 'rgba(255,255,255,' + (flash / 10 * 0.6) + ')'; ctx.fillRect(0, 0, W, H); flash--; }
+        else if (Math.random() < 0.004) flash = 10;
+      }
+    }
+    if (kind === 'snow') {
+      ctx.fillStyle = 'rgba(255,255,255,.85)';
+      for (const p of parts) {
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+        p.y += p.v * 1.6; p.x += Math.sin(p.y / 30) * 0.6 + drift * 0.3; if (p.y > H + 5) { p.y = -5; p.x = Math.random() * W; }
+      }
+    }
+    raf = requestAnimationFrame(frame);
+  }
+  return {
+    set(k, a, w) {
+      if (k === 'clear' || k === 'cloud') k = 'none';
+      if (k === kind && a === amt) { wind = w; return; }
+      kind = k; amt = a; wind = w;
+      cancelAnimationFrame(raf); ctx.clearRect(0, 0, cv.width, cv.height);
+      if (kind === 'none') return;
+      spawn(kind === 'snow' ? Math.round(90 * amt) : kind === 'fog' ? 0 : Math.round(140 * amt));
+      raf = requestAnimationFrame(frame);
+    }
+  };
+})();
+
+/* ====================== Carriles al acercarse a un desvío ====================== */
+const LANE_ARROW = { through: '⬆', none: '⬆', '': '⬆', left: '⬅', slight_left: '⬉', sharp_left: '⬋', right: '➡', slight_right: '⬈', sharp_right: '⬊',
+  reverse: '↩', merge_to_left: '⬉', merge_to_right: '⬈' };
+function ttDir(d) {
+  d = String(d || '').toUpperCase();
+  return { STRAIGHT: 'through', SLIGHT_RIGHT: 'slight_right', RIGHT: 'right', SHARP_RIGHT: 'sharp_right', LEFT: 'left', SLIGHT_LEFT: 'slight_left',
+    SHARP_LEFT: 'sharp_left', U_TURN: 'reverse' }[d] || 'through';
+}
+const KIND_OK = { right: ['right', 'sharp_right', 'slight_right'], sharp_right: ['sharp_right', 'right'], slight_right: ['slight_right', 'right', 'merge_to_right'],
+  left: ['left', 'sharp_left', 'slight_left'], sharp_left: ['sharp_left', 'left'], slight_left: ['slight_left', 'left', 'merge_to_left'],
+  uturn: ['reverse', 'left'], straight: ['through', 'none', ''] };
+function showLanes(list) {
+  const el = $('#lanes');
+  if (!list || !list.length) { el.classList.add('hidden'); document.body.classList.remove('lanes'); return; }
+  el.innerHTML = list.map(l => '<div class="lane' + (l.rec ? ' rec' : '') + '">' + l.dirs.slice(0, 3).map(d => LANE_ARROW[d] || '⬆').join('') + '</div>').join('');
+  el.classList.remove('hidden'); document.body.classList.add('lanes');
+}
+function updateLanes(r, st, dm) {
+  if (!cfg.lanes) return showLanes(null);
+  // 1) TomTom: tramos con carriles de la ruta
+  const sec = (r.lanes || []).find(l => l.at0 - nav.along <= 600 && l.at1 >= nav.along - 10);
+  if (sec) {
+    const list = sec.lanes.map(l => ({ dirs: l.f ? [l.f] : (l.d.length ? l.d : ['through']), rec: !!l.f }));
+    if (list.some(l => l.rec) && list.some(l => !l.rec)) return showLanes(list);
+  }
+  // 2) OpenStreetMap: carriles de la calle por la que vas (turn:lanes)
+  const ok = KIND_OK[st.kind];
+  if (ok && st.kind !== 'straight' && dm < 450 && dm > 5 && curWay) {
+    const tl = curWay.fwd ? curWay.w.tl : (curWay.w.tlb || '');
+    if (tl && tl.includes('|')) {
+      const list = tl.split('|').map(x => { const dirs = x.split(';').map(s => s.trim()); return { dirs, rec: dirs.some(d => ok.includes(d)) }; });
+      if (list.some(l => l.rec) && list.some(l => !l.rec)) return showLanes(list);
+    }
+  }
+  showLanes(null);
 }
 
 /* ====================== Rutas alternativas durante el viaje ====================== */
@@ -1517,6 +1819,7 @@ function gasSheet(route, from) {
 }
 
 /* ====================== Límite de velocidad de la vía ====================== */
+let curWay = null;
 let roadLimit = 0, limitWays = null, limitBusy = false, limitAt = 0, limitCand = { v: 0, n: 0 }, limitOverAt = 0, limitSaidFor = 0;
 const LIMIT_TXT = { 'es:urban': 50, 'es:rural': 90, 'es:motorway': 120, 'es:trunk': 100, 'es:zone30': 30, 'es:zone20': 20, 'es:living_street': 20,
   'es:zone10': 10, 'walk': 10, 'none': 0 };
@@ -1539,7 +1842,8 @@ async function fetchWays(c) {
         if (!w.geometry || w.geometry.length < 2) continue;
         const t = w.tags || {};
         ways.push({ g: w.geometry.map(p => [p.lon, p.lat]), max: parseMax(t.maxspeed), f: parseMax(t['maxspeed:forward']), b: parseMax(t['maxspeed:backward']),
-          oneway: t.oneway === 'yes' || t.highway === 'motorway' || t.junction === 'roundabout' });
+          oneway: t.oneway === 'yes' || t.highway === 'motorway' || t.junction === 'roundabout',
+          tl: t['turn:lanes'] || t['turn:lanes:forward'] || '', tlb: t['turn:lanes:backward'] || '' });
       }
       limitWays = { c, R, ways };
       break;
@@ -1548,7 +1852,7 @@ async function fetchWays(c) {
   limitBusy = false;
 }
 function updateLimit() {
-  if (!cfg.limit || !me) { $('#limit').classList.add('hidden'); roadLimit = 0; return; }
+  if ((!cfg.limit && !(cfg.lanes && navigating)) || !me) { $('#limit').classList.add('hidden'); roadLimit = 0; return; }
   if (!limitBusy && (!limitWays || dist(limitWays.c, me) > limitWays.R * 0.55) && Date.now() - limitAt > 15000) fetchWays(me);
   if (!limitWays) return;
   let best = null;
@@ -1569,11 +1873,13 @@ function updateLimit() {
     }
   }
   let v = 0;
+  curWay = best ? { w: best.w, fwd: best.fwd } : null;
   if (best) v = (best.fwd ? best.w.f : best.w.b) || best.w.max;
   // Cambia el número solo cuando se repite dos veces (evita saltos)
   if (v === limitCand.v) limitCand.n++; else limitCand = { v, n: 1 };
   if (limitCand.n >= 2 || !roadLimit) roadLimit = limitCand.v;
   const el = $('#limit'), kmh = speedMs * 3.6;
+  if (!cfg.limit) { el.classList.add('hidden'); return; }
   if (!roadLimit) { el.classList.add('hidden'); $('#speed').classList.remove('over'); return; }
   el.textContent = roadLimit; el.classList.remove('hidden');
   const over = kmh > roadLimit * 1.08 + 3;
