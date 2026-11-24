@@ -1503,6 +1503,17 @@ const SAT = {
     attr: 'PNOA © Instituto Geográfico Nacional', max: 19 },
   satw: { tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], attr: 'Imágenes © Esri', max: 18 }
 };
+/** Primera capa de nombres que va DESPUÉS de todas las calles, suelos y agua del estilo */
+function labelsAfterGeometry() {
+  const ls = map.getStyle().layers || [];
+  let last = -1;
+  ls.forEach((l, i) => { if (l.type === 'fill' || l.type === 'line' || l.type === 'background' || l.type === 'fill-extrusion') last = i; });
+  const l = ls.slice(last + 1).find(x => x.type === 'symbol'); return l ? l.id : undefined;
+}
+/** Primera capa de calles (para poner el satélite por debajo de las calles) */
+function firstLineLayer() {
+  const l = (map.getStyle().layers || []).find(x => x.type === 'line'); return l ? l.id : undefined;
+}
 function firstSymbolLayer() {
   const ls = map.getStyle().layers || [];
   const l = ls.find(x => x.type === 'symbol'); return l ? l.id : undefined;
@@ -1513,17 +1524,18 @@ function addLookLayers() {
   if (SAT[cfg.style]) {
     const S = SAT[cfg.style];
     map.addSource('sat', { type: 'raster', tiles: S.tiles, tileSize: 256, maxzoom: S.max, attribution: S.attr });
-    map.addLayer({ id: 'sat', type: 'raster', source: 'sat', paint: { 'raster-opacity': 1 } }, before);
+    map.addLayer({ id: 'sat', type: 'raster', source: 'sat', paint: { 'raster-opacity': 1 } }, firstLineLayer() || before);
   }
   // Edificios en 3D
   const src = Object.keys(map.getStyle().sources || {}).find(k => map.getStyle().sources[k].type === 'vector');
   // Se quitan los edificios 3D que trae el estilo (en el oscuro salen como losas negras) y se ponen los nuestros
   (map.getStyle().layers || []).filter(l => l.type === 'fill-extrusion').forEach(l => map.removeLayer(l.id));
+  const before3d = labelsAfterGeometry();
   if (src) {
     // hide_3d: contornos de edificios que ya vienen por partes (si se levantan los dos, salen cajas huecas)
     map.addLayer({ id: 'b3d', type: 'fill-extrusion', source: src, 'source-layer': 'building', minzoom: 15,
       filter: ['!', ['to-boolean', ['get', 'hide_3d']]],
-      layout: { visibility: cfg.b3d ? 'visible' : 'none' }, paint: b3dPaint() }, before);
+      layout: { visibility: cfg.b3d ? 'visible' : 'none' }, paint: b3dPaint() }, before3d);
   }
   // Zonas de Bajas Emisiones
   map.addSource('zbe', { type: 'geojson', data: zbeGeo() });
