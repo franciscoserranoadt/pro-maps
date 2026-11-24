@@ -1153,7 +1153,7 @@ $('#btnTraffic').onclick = () => {
   if (!cfg.tomtom) {
     openSheet('<div class="sTitle">🚦 Tráfico en directo</div><div class="sSub">Para ver los atascos en colores y que las rutas los esquiven, pega tu clave gratuita de TomTom en Ajustes. ' +
       'Las incidencias de la DGT (accidentes, obras, cortes, V16…) ya salen sin clave.</div><button class="btn" id="tGo">Ir a Ajustes</button>');
-    $('#tGo').onclick = settingsSheet; return;
+    $('#tGo').onclick = () => settingsPage('trafico'); return;
   }
   cfg.traffic = !cfg.traffic; saveCfg();
   if (map.getLayer('traffic')) map.setLayoutProperty('traffic', 'visibility', cfg.traffic ? 'visible' : 'none');
@@ -1182,85 +1182,126 @@ $('#btnLayers').onclick = () => {
 };
 
 /* ====================== Ajustes ====================== */
+/* ====================== Ajustes (menú por secciones) ====================== */
+let setPage = null;
+const SET_PAGES = {
+  ruta:     { i: '🧭', n: 'Rutas y navegación', d: 'Más rápida o más corta, peajes, voz, carriles' },
+  avisos:   { i: '⚠️', n: 'Avisos y seguridad', d: 'Límite de velocidad, cansancio, curvas, escuelas' },
+  trafico:  { i: '🚦', n: 'Tráfico en directo', d: 'Clave de TomTom y atascos' },
+  aspecto:  { i: '🎨', n: 'Apariencia', d: 'Tipo de mapa, modo oscuro, 3D, tiempo, vehículo' },
+  zbe:      { i: '🌿', n: 'Zonas de Bajas Emisiones', d: 'Tu etiqueta, avisos y evitar las ZBE' },
+  coche:    { i: '⛽', n: 'Combustible y aparcamiento', d: 'Tu combustible, parkings y vincular dispositivos' },
+  offline:  { i: '📥', n: 'Mapa sin conexión', d: 'Guardar el mapa de tus rutas y de tu zona' },
+  app:      { i: 'ℹ️', n: 'Sobre la app', d: 'Actualizaciones, radares, probar la voz' }
+};
 function settingsSheet() {
-  const t = (k, label, sub) => '<div class="set"><label>' + label + (sub ? '<small>' + sub + '</small>' : '') + '</label><input type="checkbox" data-k="' + k + '"' + (cfg[k] ? ' checked' : '') + '></div>';
-  const ver = N ? N.version() : 'web';
-  openSheet('<div class="sTitle">⚙️ Ajustes</div>' +
-    t('voice', '🔊 Indicaciones por voz') + t('beep', '🔔 Pitido en radares y exceso de velocidad') +
-    '<div class="set"><label>🧭 Tipo de ruta por defecto</label><select id="rkSel"><option value="fastest">⚡ La más rápida</option><option value="shortest">📏 La más corta</option></select></div>' +
-    t('tolls', '💶 Evitar peajes') + t('highways', '🛣️ Evitar autopistas y autovías') +
-    t('limit', '🚫 Mostrar el límite de velocidad de la vía', 'Sale de OpenStreetMap; en algunas calles no hay dato') +
-    t('limitWarn', '⚠️ Avisar si paso el límite de la vía') +
-    '<div class="set"><label>⛽ Mi combustible</label><select id="fuelSel">' + Object.keys(FUELS).map(k => '<option value="' + k + '">' + FUELS[k].n + '</option>').join('') + '</select></div>' +
-    t('lanes', '🛣️ Carriles al acercarte a un desvío', 'Con TomTom o con los datos de OpenStreetMap') +
-    '<button class="btn alt" id="bFavs">⭐ Casa, Trabajo y Favoritos</button>' +
-    '<div class="sec">🎨 Apariencia</div>' +
-    '<div class="set"><label>🗺️ Tipo de mapa</label><select id="styleSel"><option value="auto">Automático (claro de día, oscuro de noche)</option>' +
-    '<option value="light">Claro</option><option value="dark">Oscuro</option><option value="soft">Suave</option><option value="sat">Satélite España (IGN)</option>' +
-    '<option value="satw">Satélite mundial</option></select></div>' +
-    '<div class="set"><label>🌙 Brillo del modo oscuro</label><select id="darkSel"><option value="normal">Oscuro</option><option value="mas">Más claro</option><option value="mucho">Mucho más claro</option></select></div>' +
-    t('b3d', '🏙️ Edificios en 3D', 'Se ven al acercar el mapa e inclinarlo') +
-    t('wxfx', '🌧️ Efectos del tiempo real', 'Lluvia, nieve, niebla o tormenta en pantalla si está pasando donde estás') +
-    '<div class="btnrow"><button class="btn alt" data-fx="rain">🌧️ Ver lluvia</button><button class="btn alt" data-fx="snow">❄️ Nieve</button><button class="btn alt" data-fx="fog">🌫️ Niebla</button><button class="btn alt" data-fx="storm">⛈️ Tormenta</button></div>' +
-    t('wxchip', '🌡️ Mostrar el tiempo y la temperatura') +
-    t('trees', '🌳 Árboles', 'De OpenStreetMap, al acercar mucho el mapa') +
-    t('lamps', '💡 Farolas', 'De OpenStreetMap; de noche se iluminan') +
-    '<button class="btn alt" id="bCar">🚗 Cambiar el icono del vehículo</button>' +
-    '<div class="sec">🛡️ Seguridad</div>' +
-    t('fatigue', '😴 Aviso de cansancio', 'A las 2 horas seguidas conduciendo te propone descansar') +
-    t('curves', '↪️ Curvas peligrosas en la ruta', 'Calculadas con la forma de la carretera; solo a más de 50 km/h') +
-    t('hazards', '🚂 Pasos a nivel, zonas escolares y peligros', 'De OpenStreetMap. Escuelas: de lunes a viernes de 8 a 18 h') +
-    '<button class="btn alt" id="bVoiceHelp">🎤 Qué le puedo decir por voz</button>' +
-    '<div class="sec">📥 Mapa sin conexión</div>' +
-    t('offlineRoute', '📥 Guardar el mapa de cada ruta', 'Al empezar una ruta se descarga el mapa del camino para verlo sin cobertura') +
-    '<button class="btn alt" id="bZone">📥 Descargar el mapa de mi zona (30 km)</button>' +
-    '<button class="btn alt" id="bCache">🗂️ Mapa guardado en el móvil</button>' +
-    '<div class="sec">🌿 Zonas de Bajas Emisiones</div>' +
-    '<div class="set"><label>🏷️ Etiqueta ambiental de tu coche</label><select id="labelSel">' + Object.keys(LABEL_NAME).map(k => '<option value="' + k + '">' + LABEL_NAME[k] + '</option>').join('') + '</select></div>' +
-    t('zbe', '🔔 Avisar al entrar en una ZBE') + t('zbeShow', '🗺️ Dibujar las ZBE en el mapa') +
-    t('zbeAvoid', '↪️ Evitar las ZBE en las rutas', 'Solo si tu etiqueta puede tener problemas (sin etiqueta, B o C). Las rutas se calculan sin TomTom') +
-    '<div class="sec">🅿️ Aparcamiento</div>' +
-    t('parkNear', '🅿️ Aparcamientos cerca del destino', 'Un botón pequeño al acercarte; datos de OpenStreetMap') +
-    '<button class="btn alt" id="bSync">📲 Vincular con el móvil o la pantalla del coche</button>' +
-    '<button class="btn alt" id="bStats">📊 Mis viajes y estadísticas</button>' +
-    '<div class="sec">⚙️ Otros</div>' +
-    '<div class="set" style="display:block"><label>🚦 Clave de TomTom (opcional, gratis)<small>Activa el tráfico en directo y las rutas que esquivan atascos. Se saca gratis en developer.tomtom.com</small></label>' +
+  setPage = null;
+  let h = '<div class="sTitle">⚙️ Ajustes</div>';
+  for (const k in SET_PAGES) {
+    const pg = SET_PAGES[k];
+    h += '<div class="row" data-pg="' + k + '"><div class="ri">' + pg.i + '</div><div class="rt"><div class="r1">' + pg.n + '</div><div class="r2">' + pg.d + '</div></div><div class="rr chev">›</div></div>';
+  }
+  h += '<div class="sec">Accesos</div>' +
+    '<div class="row" data-go="favs"><div class="ri">⭐</div><div class="rt"><div class="r1">Casa, Trabajo, Favoritos y rutas guardadas</div></div><div class="rr chev">›</div></div>' +
+    '<div class="row" data-go="stats"><div class="ri">📊</div><div class="rt"><div class="r1">Mis viajes y estadísticas</div></div><div class="rr chev">›</div></div>' +
+    '<div class="row" data-go="voice"><div class="ri">🎤</div><div class="rt"><div class="r1">Qué le puedo decir por voz</div></div><div class="rr chev">›</div></div>';
+  openSheet(h);
+  document.querySelectorAll('#sheetBody [data-pg]').forEach(el => el.onclick = () => settingsPage(el.dataset.pg));
+  document.querySelectorAll('#sheetBody [data-go]').forEach(el => el.onclick = () => ({ favs: favSheet, stats: statsSheet, voice: voiceHelp })[el.dataset.go]());
+}
+function settingsPage(k) {
+  setPage = k;
+  const pg = SET_PAGES[k];
+  const tg = (key, label, sub) => '<div class="set"><label>' + label + (sub ? '<small>' + sub + '</small>' : '') + '</label><input type="checkbox" data-k="' + key + '"' + (cfg[key] ? ' checked' : '') + '></div>';
+  const sel = (key, label, opts, sub) => '<div class="set setcol"><label>' + label + (sub ? '<small>' + sub + '</small>' : '') + '</label><select data-sel="' + key + '">' +
+    opts.map(([v, n]) => '<option value="' + v + '"' + (cfg[key] === v ? ' selected' : '') + '>' + n + '</option>').join('') + '</select></div>';
+  const btn = (id, label, cls) => '<button class="btn ' + (cls || 'alt') + '" id="' + id + '">' + label + '</button>';
+  let h = '<button class="back" id="setBack">‹ Ajustes</button><div class="sTitle">' + pg.i + ' ' + pg.n + '</div>';
+  if (k === 'ruta') h +=
+    sel('routeType', '🧭 Tipo de ruta por defecto', [['fastest', '⚡ La más rápida'], ['shortest', '📏 La más corta']], 'En cada viaje también puedes cambiarla al ver las rutas') +
+    tg('tolls', '💶 Evitar peajes') + tg('highways', '🛣️ Evitar autopistas y autovías') +
+    tg('voice', '🔊 Indicaciones por voz') + tg('beep', '🔔 Pitidos en radares y exceso de velocidad') +
+    tg('lanes', '🛣️ Carriles al acercarte a un desvío', 'Con TomTom o con los datos de OpenStreetMap') +
+    btn('bTest', '🔊 Probar la voz');
+  if (k === 'avisos') h +=
+    '<div class="sec">Velocidad</div>' +
+    tg('limit', '🚫 Mostrar el límite de la vía', 'Sale de OpenStreetMap; en algunas calles no hay dato') +
+    tg('limitWarn', '⚠️ Avisar si paso el límite de la vía') +
+    '<div class="sec">Seguridad</div>' +
+    tg('fatigue', '😴 Aviso de cansancio', 'A las 2 horas seguidas conduciendo te propone descansar') +
+    tg('curves', '↪️ Curvas peligrosas en la ruta', 'Solo a más de 50 km/h') +
+    tg('hazards', '🚂 Pasos a nivel, zonas escolares y peligros', 'Escuelas: de lunes a viernes de 8 a 18 h');
+  if (k === 'trafico') h +=
+    '<div class="set setcol"><label>🔑 Clave de TomTom (gratis)<small>Activa el tráfico en directo, los atascos y las rutas que los esquivan. Se saca gratis en my.tomtom.com</small></label>' +
     '<input type="text" id="ttKey" placeholder="Pega aquí tu clave" value="' + esc(cfg.tomtom) + '" autocapitalize="off" autocorrect="off" spellcheck="false"></div>' +
-    '<button class="btn alt" id="bRad">📷 Actualizar radares ahora</button>' +
-    '<button class="btn alt" id="bUpd">🔄 Buscar actualización de la app (v' + esc(ver) + ')</button>' +
-    '<button class="btn alt" id="bTest">🔊 Probar la voz</button>' +
-    '<div class="muted" style="margin-top:12px">Mapa © OpenStreetMap y OpenFreeMap · Rutas Valhalla (FOSSGIS) · Incidencias DGT (datos abiertos) · Búsqueda Photon y CartoCiudad (IGN). ' +
-    'Satélite: PNOA © IGN y Esri. Tiempo: Open-Meteo. Atascos e incidencias en directo: TomTom (con tu clave). Precios de carburantes: Ministerio (datos abiertos). Los radares móviles reales solo se pueden saber si alguien los avisa: usa el botón ⚠️.</div>');
-  document.querySelectorAll('#sheetBody input[type=checkbox]').forEach(i => i.onchange = () => { cfg[i.dataset.k] = i.checked; saveCfg(); });
-  $('#ttKey').onchange = e => {
+    tg('ttinc', '🚗 Atascos e incidencias de TomTom', 'Se ven en el mapa y te avisa con el retraso en minutos') +
+    tg('incid', '⚠️ Incidencias de la DGT', 'Accidentes, obras, cortes, balizas V16');
+  if (k === 'aspecto') h +=
+    '<div class="sec">Mapa</div>' +
+    sel('style', '🗺️ Tipo de mapa', [['auto', 'Automático (claro de día, oscuro de noche)'], ['light', 'Claro'], ['dark', 'Oscuro'], ['soft', 'Suave'], ['sat', 'Satélite España (IGN)'], ['satw', 'Satélite mundial']]) +
+    sel('darkLvl', '🌙 Brillo del modo oscuro', [['normal', 'Oscuro'], ['mas', 'Más claro'], ['mucho', 'Mucho más claro']]) +
+    tg('b3d', '🏙️ Edificios en 3D', 'Al acercar e inclinar el mapa') +
+    tg('trees', '🌳 Árboles', 'Al acercar mucho el mapa') + tg('lamps', '💡 Farolas', 'De noche se iluminan') +
+    '<div class="sec">Tiempo</div>' +
+    tg('wxfx', '🌧️ Efectos del tiempo real', 'Lluvia, nieve, niebla o tormenta si está pasando donde estás') +
+    tg('wxchip', '🌡️ Tiempo y temperatura junto al velocímetro') +
+    '<div class="chips"><button class="chip" data-fx="rain">🌧️ Ver lluvia</button><button class="chip" data-fx="snow">❄️ Ver nieve</button><button class="chip" data-fx="fog">🌫️ Ver niebla</button><button class="chip" data-fx="storm">⛈️ Ver tormenta</button></div>' +
+    '<div class="sec">Tu vehículo</div>' +
+    '<div class="row" id="bCar"><div class="ri" style="width:46px">' + carSvg(cfg.car, cfg.carColor) + '</div><div class="rt"><div class="r1">' + CARS[cfg.car] + '</div><div class="r2">Toca para cambiar el icono y el color</div></div><div class="rr chev">›</div></div>';
+  if (k === 'zbe') h +=
+    sel('label', '🏷️ Etiqueta ambiental de tu coche', Object.keys(LABEL_NAME).map(x => [x, LABEL_NAME[x]])) +
+    tg('zbe', '🔔 Avisar al entrar en una ZBE') + tg('zbeShow', '🗺️ Dibujar las ZBE en el mapa') +
+    tg('zbeAvoid', '↪️ Evitar las ZBE en las rutas', 'Solo si tu etiqueta puede tener problemas (sin etiqueta, B o C). Esas rutas se calculan sin tráfico de TomTom');
+  if (k === 'coche') h +=
+    sel('fuel', '⛽ Mi combustible', Object.keys(FUELS).map(x => [x, FUELS[x].n])) +
+    tg('gas', '⛽ Gasolineras con precio en el mapa') +
+    tg('parkNear', '🅿️ Aparcamientos cerca del destino', 'Un botón pequeño al acercarte') +
+    '<div class="sec">¿Dónde aparqué?</div>' +
+    btn('bSync', '📲 Vincular con el móvil o la pantalla del coche' + (cfg.syncCode ? ' ✅' : ''));
+  if (k === 'offline') h +=
+    tg('offlineRoute', '📥 Guardar el mapa de cada ruta', 'Al empezar una ruta se descarga el mapa del camino') +
+    btn('bZone', '📥 Descargar el mapa de mi zona (30 km)') + btn('bCache', '🗂️ Mapa guardado en el móvil');
+  if (k === 'app') h +=
+    btn('bUpd', '🔄 Buscar actualización (tienes la v' + esc(N ? N.version() : 'web') + ')') +
+    btn('bRad', '📷 Actualizar los radares ahora') +
+    '<div class="muted" style="margin-top:12px">Mapa © OpenStreetMap y OpenFreeMap · Rutas Valhalla (FOSSGIS) · Incidencias DGT (datos abiertos) · Búsqueda Photon y CartoCiudad (IGN) · ' +
+    'Satélite PNOA © IGN y Esri · Tiempo Open-Meteo · Tráfico TomTom (con tu clave) · Carburantes: Ministerio (datos abiertos).</div>';
+  openSheet(h);
+  $('#setBack').onclick = settingsSheet;
+  // Interruptores
+  document.querySelectorAll('#sheetBody input[type=checkbox]').forEach(i => i.onchange = () => {
+    const key = i.dataset.k; cfg[key] = i.checked; saveCfg();
+    lookChanged(key);
+    if (key === 'limit' && !cfg.limit) $('#limit').classList.add('hidden');
+    if (key === 'zbeShow') ['zbeFill', 'zbeLine'].forEach(id => map.getLayer(id) && map.setLayoutProperty(id, 'visibility', cfg.zbeShow ? 'visible' : 'none'));
+    if (key === 'gas' && map.getLayer('gas')) map.setLayoutProperty('gas', 'visibility', cfg.gas ? 'visible' : 'none');
+    if (key === 'ttinc' || key === 'incid') { refreshPois(); if (key === 'ttinc' && cfg.ttinc) loadTT(); }
+  });
+  // Desplegables
+  document.querySelectorAll('#sheetBody select[data-sel]').forEach(sl => sl.onchange = () => {
+    const key = sl.dataset.sel; cfg[key] = sl.value; saveCfg();
+    if (key === 'style' || key === 'darkLvl') applyStyle(true);
+    if (key === 'fuel') refreshGas();
+  });
+  // Botones
+  const on = (id, f) => { const el = document.getElementById(id); if (el) el.onclick = f; };
+  on('bTest', () => say('Radar fijo a 500 metros. Límite 100.', true));
+  on('bCar', carSheet);
+  on('bSync', syncSheet);
+  on('bZone', () => { closeSheet(); prefetchZone(); });
+  on('bCache', cacheSheet);
+  on('bUpd', () => { if (N) N.checkUpdate(); });
+  on('bRad', () => { toast('Descargando radares… (puede tardar un minuto)', 5000); loadRadars(true); });
+  const tk = document.getElementById('ttKey');
+  if (tk) tk.onchange = e => {
     const had = !!cfg.tomtom; cfg.tomtom = e.target.value.trim(); saveCfg();
     toast(cfg.tomtom ? 'Clave de TomTom guardada' : 'Clave quitada'); if (had !== !!cfg.tomtom || cfg.tomtom) applyStyle(true);
     if (cfg.tomtom) loadTT(); else { ttInc = []; refreshPois(); }
   };
-  $('#rkSel').value = cfg.routeType;
-  $('#rkSel').onchange = e => { cfg.routeType = e.target.value; saveCfg(); };
-  $('#labelSel').value = cfg.label;
-  $('#labelSel').onchange = e => { cfg.label = e.target.value; saveCfg(); };
-  $('#bSync').onclick = syncSheet; $('#bStats').onclick = statsSheet;
-  $('#bVoiceHelp').onclick = voiceHelp; $('#bZone').onclick = () => { closeSheet(); prefetchZone(); }; $('#bCache').onclick = cacheSheet;
-  document.querySelectorAll('#sheetBody input[data-k=zbeShow]').forEach(i => i.addEventListener('change', () => ['zbeFill', 'zbeLine'].forEach(id => map.getLayer(id) && map.setLayoutProperty(id, 'visibility', cfg.zbeShow ? 'visible' : 'none'))));
-  $('#darkSel').value = cfg.darkLvl;
-  $('#darkSel').onchange = e => { cfg.darkLvl = e.target.value; saveCfg(); applyStyle(true); };
   document.querySelectorAll('#sheetBody [data-fx]').forEach(b => b.onclick = () => {
-    closeSheet(); fx.set(b.dataset.fx, 1, 15); toast('Así se ve con ' + b.textContent.replace(/^\S+\s/, '').replace('Ver ', '').toLowerCase() + ' (10 segundos)');
+    closeSheet(); fx.set(b.dataset.fx, 1, 15); toast('Así se ve con ' + b.textContent.replace(/^\S+\s/, '').replace('Ver ', '') + ' (10 segundos)');
     clearTimeout(fx.demoT); fx.demoT = setTimeout(renderWeather, 10000);
   });
-  $('#styleSel').value = cfg.style;
-  $('#styleSel').onchange = e => { cfg.style = e.target.value; saveCfg(); applyStyle(true); };
-  $('#bCar').onclick = carSheet;
-  document.querySelectorAll('#sheetBody input[type=checkbox]').forEach(i => i.addEventListener('change', () => lookChanged(i.dataset.k)));
-  $('#fuelSel').value = cfg.fuel;
-  $('#fuelSel').onchange = e => { cfg.fuel = e.target.value; saveCfg(); refreshGas(); };
-  $('#bFavs').onclick = favSheet;
-  document.querySelectorAll('#sheetBody input[data-k=limit]').forEach(i => i.addEventListener('change', () => { if (!cfg.limit) $('#limit').classList.add('hidden'); }));
-  $('#bRad').onclick = () => { toast('Descargando radares… (puede tardar un minuto)', 5000); loadRadars(true); };
-  $('#bUpd').onclick = () => { if (N) N.checkUpdate(); };
-  $('#bTest').onclick = () => say('Radar fijo a 500 metros. Límite 100.', true);
 }
 $('#btnSettings').onclick = settingsSheet;
 $('#btnSet2').onclick = settingsSheet;
@@ -1552,7 +1593,7 @@ function carSheet() {
   openSheet(h);
   document.querySelectorAll('[data-car]').forEach(b => b.onclick = () => { cfg.car = b.dataset.car; saveCfg(); applyCar(); carSheet(); });
   document.querySelectorAll('[data-col]').forEach(b => b.onclick = () => { cfg.carColor = b.dataset.col; saveCfg(); applyCar(); carSheet(); });
-  $('#carOk').onclick = closeSheet;
+  $('#carOk').onclick = () => setPage === 'aspecto' ? settingsPage('aspecto') : closeSheet();
 }
 function applyCar() { const el = document.getElementById('meIcon'); if (el) el.innerHTML = carSvg(cfg.car, cfg.carColor); }
 
@@ -2732,6 +2773,7 @@ window.onShared = onShared;
 window.onBack = () => {
   if (altPromptFor) { declineAlt(false); return true; }
   if (!$('#notice').classList.contains('hidden')) { hideNotice(); return true; }
+  if (sheetOpen() && setPage && document.getElementById('setBack')) { settingsSheet(); return true; }
   if (sheetOpen()) { closeSheet(); return true; }
   if (pickFor) { pickCancel(); return true; }
   if (document.activeElement === $('#q')) { $('#q').blur(); return true; }

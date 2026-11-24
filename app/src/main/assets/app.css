@@ -270,3 +270,11 @@ body.lanes #parkPill{top:calc(196px + var(--safe-t))}
   padding:18px 24px;min-width:260px;max-width:86vw;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,.6)}
 .vbIco{font-size:44px}
 #vbTxt{font-size:19px;font-weight:700;margin-top:6px}
+
+/* Ajustes: desplegables y textos debajo de la etiqueta */
+.set.setcol{display:block}
+.set.setcol label{display:block;margin-bottom:8px}
+.set.setcol select,.set.setcol input[type=text]{width:100%}
+.set label small{margin-top:2px}
+.back{background:none;color:var(--cyan);font-size:16px;font-weight:700;padding:4px 2px 8px}
+.row .rr.chev{font-size:22px}
