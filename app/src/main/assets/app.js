@@ -543,13 +543,17 @@ function placeMenu(pos) {
 }
 
 /* ====================== Hoja inferior ====================== */
-let sheetOnClose = null;
+let sheetOnClose = null, backTo = null;
 function openSheet(html, onClose) {
+  // Pantallas abiertas desde Ajustes: botón para volver
+  if (backTo && html.indexOf('id="setBack"') < 0) html = '<button class="back" id="sheetBack">‹ Ajustes</button>' + html;
   $('#sheetBody').innerHTML = html; delete $('#sheetBody').dataset.gas;
+  const sb = document.getElementById('sheetBack'); if (sb) { const f = backTo; sb.onclick = () => { sheetOnClose = null; f(); }; }
   $('#sheet').classList.remove('hidden'); $('#sheetBg').classList.remove('hidden');
   $('#sheet').scrollTop = 0; sheetOnClose = onClose || null;
 }
 function closeSheet() {
+  backTo = null;
   $('#sheet').classList.add('hidden'); $('#sheetBg').classList.add('hidden');
   const f = sheetOnClose; sheetOnClose = null; if (f) f();
 }
@@ -1221,7 +1225,7 @@ const SET_PAGES = {
   app:      { i: 'ℹ️', n: 'Sobre la app', d: 'Actualizaciones, radares, probar la voz' }
 };
 function settingsSheet() {
-  setPage = null;
+  setPage = null; backTo = null;
   let h = '<div class="sTitle">⚙️ Ajustes</div>';
   for (const k in SET_PAGES) {
     const pg = SET_PAGES[k];
@@ -1232,11 +1236,11 @@ function settingsSheet() {
     '<div class="row" data-go="stats"><div class="ri">📊</div><div class="rt"><div class="r1">Mis viajes y estadísticas</div></div><div class="rr chev">›</div></div>' +
     '<div class="row" data-go="voice"><div class="ri">🎤</div><div class="rt"><div class="r1">Qué le puedo decir por voz</div></div><div class="rr chev">›</div></div>';
   openSheet(h);
-  document.querySelectorAll('#sheetBody [data-pg]').forEach(el => el.onclick = () => el.dataset.pg === 'sync' ? syncSheet() : settingsPage(el.dataset.pg));
-  document.querySelectorAll('#sheetBody [data-go]').forEach(el => el.onclick = () => ({ favs: favSheet, stats: statsSheet, voice: voiceHelp })[el.dataset.go]());
+  document.querySelectorAll('#sheetBody [data-pg]').forEach(el => el.onclick = () => { if (el.dataset.pg === 'sync') { backTo = settingsSheet; syncSheet(); } else settingsPage(el.dataset.pg); });
+  document.querySelectorAll('#sheetBody [data-go]').forEach(el => el.onclick = () => { backTo = settingsSheet; ({ favs: favSheet, stats: statsSheet, voice: voiceHelp })[el.dataset.go](); });
 }
 function settingsPage(k) {
-  setPage = k;
+  setPage = k; backTo = null;
   const pg = SET_PAGES[k];
   const tg = (key, label, sub) => '<div class="set"><label>' + label + (sub ? '<small>' + sub + '</small>' : '') + '</label><input type="checkbox" data-k="' + key + '"' + (cfg[key] ? ' checked' : '') + '></div>';
   const sel = (key, label, opts, sub) => '<div class="set setcol"><label>' + label + (sub ? '<small>' + sub + '</small>' : '') + '</label><select data-sel="' + key + '">' +
@@ -1319,7 +1323,7 @@ function settingsPage(k) {
     if (key === 'zoomLvl') { camZ = null; if (follow && me) moveCamera(); }
   });
   // Botones
-  const on = (id, f) => { const el = document.getElementById(id); if (el) el.onclick = f; };
+  const on = (id, f) => { const el = document.getElementById(id); if (el) el.onclick = () => { if (/^(bCar|bSync|bCache)$/.test(id)) backTo = () => settingsPage(k); f(); }; };
   on('bTest', () => say('Radar fijo a 500 metros. Límite 100.', true));
   on('bCar', carSheet);
   on('bSync', syncSheet);
@@ -1628,7 +1632,7 @@ function carSheet() {
   openSheet(h);
   document.querySelectorAll('[data-car]').forEach(b => b.onclick = () => { cfg.car = b.dataset.car; saveCfg(); applyCar(); carSheet(); });
   document.querySelectorAll('[data-col]').forEach(b => b.onclick = () => { cfg.carColor = b.dataset.col; saveCfg(); applyCar(); carSheet(); });
-  $('#carOk').onclick = () => setPage === 'aspecto' ? settingsPage('aspecto') : closeSheet();
+  $('#carOk').onclick = () => backTo ? backTo() : closeSheet();
 }
 function applyCar() {
   const el = document.getElementById('meIcon'); if (!el) return;
@@ -2560,6 +2564,7 @@ async function ccFind(d) {
 let pickFor = null; // 'casa' | 'trabajo' | 'fav' | 'stop'
 const PICK_TITLE = { casa: '🏠 ¿Cuál es tu casa?', trabajo: '💼 ¿Dónde trabajas?', fav: '⭐ Nuevo favorito', stop: '📍 Añadir una parada' };
 function startPick(k) {
+  backTo = null;
   pickFor = k;
   $('#q').value = '';
   showSearch('');
@@ -2875,6 +2880,7 @@ window.onShared = onShared;
 window.onBack = () => {
   if (altPromptFor) { declineAlt(false); return true; }
   if (!$('#notice').classList.contains('hidden')) { hideNotice(); return true; }
+  if (sheetOpen() && document.getElementById('sheetBack')) { document.getElementById('sheetBack').click(); return true; }
   if (sheetOpen() && setPage && document.getElementById('setBack')) { settingsSheet(); return true; }
   if (sheetOpen()) { closeSheet(); return true; }
   if (pickFor) { pickCancel(); return true; }

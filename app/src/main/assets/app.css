@@ -264,8 +264,7 @@ body.lanes #parkPill{top:calc(196px + var(--safe-t))}
 
 .rbIn{position:absolute;left:0;right:0;top:0;bottom:0}
 
-.fab.mic{background:#7c3aed}
-.fab.mic.on{animation:blink .5s infinite alternate}
+#btnMic.on{background:#7c3aed;animation:blink .5s infinite alternate}
 #voiceBox{position:fixed;z-index:30;left:50%;top:40%;transform:translate(-50%,-50%);background:#2e1065;border:3px solid #b39dfa;border-radius:22px;
   padding:18px 24px;min-width:260px;max-width:86vw;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,.6)}
 .vbIco{font-size:44px}
@@ -278,3 +277,6 @@ body.lanes #parkPill{top:calc(196px + var(--safe-t))}
 .set label small{margin-top:2px}
 .back{background:none;color:var(--cyan);font-size:16px;font-weight:700;padding:4px 2px 8px}
 .row .rr.chev{font-size:22px}
+
+/* La barra de búsqueda queda siempre por encima del oscurecido de las hojas */
+#searchBar{z-index:22}
