@@ -55,6 +55,9 @@ public class MainActivity extends Activity implements LocationListener {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService pool = Executors.newFixedThreadPool(4);
     private String pendingShare = null;
+    private TileCache tiles;
+    private android.speech.SpeechRecognizer recognizer;
+    private final ExecutorService prefetchPool = Executors.newFixedThreadPool(4);
     private boolean pageReady = false;
 
     private static final OkHttpClient HTTP = new OkHttpClient.Builder()
@@ -83,7 +86,19 @@ public class MainActivity extends Activity implements LocationListener {
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        web.setWebViewClient(new WebViewClient());
+        tiles = new TileCache(this);
+        web.setWebViewClient(new WebViewClient() {
+            @Override
+            public android.webkit.WebResourceResponse shouldInterceptRequest(WebView view, android.webkit.WebResourceRequest req) {
+                String url = req.getUrl().toString();
+                if ("GET".equals(req.getMethod()) && TileCache.handles(url)) {
+                    android.webkit.WebResourceResponse r = tiles.serve(url);
+                    if (r != null) return r;
+                }
+                return super.shouldInterceptRequest(view, req);
+            }
+        });
+        pool.execute(() -> tiles.trim());
         web.setWebChromeClient(new WebChromeClient() {
             @Override public boolean onConsoleMessage(ConsoleMessage m) {
                 android.util.Log.d("Pro Maps", m.message() + " @" + m.lineNumber());
@@ -147,6 +162,11 @@ public class MainActivity extends Activity implements LocationListener {
     @Override
     public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
         super.onRequestPermissionsResult(code, perms, res);
+        if (code == 2) {
+            if (res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED) startListening();
+            else voiceJs("onVoiceError", "Sin permiso de micrófono no puedo escucharte");
+            return;
+        }
         if (res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED) startGps();
         else toast("Sin permiso de ubicación no puedo guiarte. Actívalo en Ajustes > Apps > Pro Maps.");
     }
@@ -243,6 +263,45 @@ public class MainActivity extends Activity implements LocationListener {
                 try { startActivity(Intent.createChooser(i, "Compartir con…")); } catch (Exception ignored) { }
             });
         }
+
+        /** Descarga para usar sin cobertura una lista de trozos del mapa. Avisa del progreso a la página. */
+        @JavascriptInterface
+        public void prefetch(String id, String urlsJson) {
+            pool.execute(() -> {
+                try {
+                    JSONArray arr = new JSONArray(urlsJson);
+                    final int total = arr.length();
+                    final java.util.concurrent.atomic.AtomicInteger done = new java.util.concurrent.atomic.AtomicInteger(), ok = new java.util.concurrent.atomic.AtomicInteger();
+                    java.util.List<java.util.concurrent.Future<?>> fs = new java.util.ArrayList<>();
+                    for (int i = 0; i < total; i++) {
+                        final String u = arr.getString(i);
+                        fs.add(prefetchPool.submit(() -> {
+                            if (tiles.fetch(u)) ok.incrementAndGet();
+                            int d = done.incrementAndGet();
+                            if (d % 25 == 0 || d == total) {
+                                String js = "window.onPrefetch&&window.onPrefetch(" + JSONObject.quote(id) + "," + d + "," + total + "," + ok.get() + ")";
+                                handler.post(() -> { if (web != null) web.evaluateJavascript(js, null); });
+                            }
+                        }));
+                    }
+                    for (java.util.concurrent.Future<?> f : fs) { try { f.get(); } catch (Exception ignored) { } }
+                    tiles.trim();
+                    reply(id, true, ok.get() + "/" + total);
+                } catch (Exception e) {
+                    reply(id, false, String.valueOf(e.getMessage()));
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public String cacheSize() { return String.valueOf(tiles.size()); }
+
+        @JavascriptInterface
+        public void clearCache() { pool.execute(() -> tiles.clear()); }
+
+        /** Escucha una orden por voz (micrófono) y la devuelve a la página como texto */
+        @JavascriptInterface
+        public void listen() { handler.post(MainActivity.this::startListening); }
 
         @JavascriptInterface
         public void dgt(String id) {
@@ -357,6 +416,50 @@ public class MainActivity extends Activity implements LocationListener {
         }
     }
 
+    // ---------- Órdenes por voz ----------
+
+    private void voiceJs(String fn, String arg) {
+        String js = "window." + fn + "&&window." + fn + "(" + JSONObject.quote(arg) + ")";
+        handler.post(() -> { if (web != null) web.evaluateJavascript(js, null); });
+    }
+
+    private void startListening() {
+        if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 2);
+            return;
+        }
+        if (!android.speech.SpeechRecognizer.isRecognitionAvailable(this)) {
+            voiceJs("onVoiceError", "Este dispositivo no tiene reconocimiento de voz (instala o activa la app de Google)");
+            return;
+        }
+        if (ttsReady) tts.stop();
+        if (recognizer != null) { try { recognizer.destroy(); } catch (Exception ignored) { } }
+        recognizer = android.speech.SpeechRecognizer.createSpeechRecognizer(this);
+        recognizer.setRecognitionListener(new android.speech.RecognitionListener() {
+            @Override public void onReadyForSpeech(Bundle b) { voiceJs("onVoiceState", "escuchando"); }
+            @Override public void onBeginningOfSpeech() { }
+            @Override public void onRmsChanged(float v) { }
+            @Override public void onBufferReceived(byte[] b) { }
+            @Override public void onEndOfSpeech() { voiceJs("onVoiceState", "procesando"); }
+            @Override public void onError(int e) {
+                voiceJs("onVoiceError", e == android.speech.SpeechRecognizer.ERROR_NO_MATCH || e == android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+                        ? "No te he oído bien" : e == android.speech.SpeechRecognizer.ERROR_NETWORK || e == android.speech.SpeechRecognizer.ERROR_NETWORK_TIMEOUT
+                        ? "Sin conexión para entender la voz" : "No se pudo escuchar (" + e + ")");
+            }
+            @Override public void onResults(Bundle r) {
+                java.util.ArrayList<String> l = r.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION);
+                voiceJs("onVoice", l != null && !l.isEmpty() ? l.get(0) : "");
+            }
+            @Override public void onPartialResults(Bundle b) { }
+            @Override public void onEvent(int t, Bundle b) { }
+        });
+        Intent i = new Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        i.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        i.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, "es-ES");
+        i.putExtra(android.speech.RecognizerIntent.EXTRA_MAX_RESULTS, 1);
+        try { recognizer.startListening(i); } catch (Exception e) { voiceJs("onVoiceError", "No se pudo usar el micrófono"); }
+    }
+
     // ---------- Actualizaciones ----------
 
     private void checkUpdate(boolean manual) {
@@ -447,6 +550,8 @@ public class MainActivity extends Activity implements LocationListener {
         try { lm.removeUpdates(this); } catch (Exception ignored) { }
         if (tts != null) tts.shutdown();
         if (tone != null) tone.release();
+        if (recognizer != null) { try { recognizer.destroy(); } catch (Exception ignored) { } }
+        prefetchPool.shutdownNow();
         pool.shutdownNow();
         if (web != null) { web.destroy(); web = null; }
         super.onDestroy();
