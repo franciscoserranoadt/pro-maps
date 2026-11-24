@@ -3,11 +3,11 @@ plugins {
 }
 
 android {
-    namespace 'com.fserrano.pirunav'
+    namespace 'com.fserrano.promaps'
     compileSdk 34
 
     defaultConfig {
-        applicationId 'com.fserrano.pirunav'
+        applicationId 'com.fserrano.promaps'
         minSdk 23
         targetSdk 34
         versionCode 1
@@ -17,7 +17,7 @@ android {
     signingConfigs {
         fija {
             // Firma fija: así cada versión se instala encima de la anterior
-            storeFile rootProject.file('pirunav.jks')
+            storeFile rootProject.file('promaps.jks')
             storePassword System.getenv('KEYSTORE_PASS') ?: ''
             keyAlias 'pirunav'
             keyPassword System.getenv('KEYSTORE_PASS') ?: ''

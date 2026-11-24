@@ -1,4 +1,4 @@
-# PiruNav
+# Pro Maps
 
 Navegador gratuito estilo Waze + Google Maps para Android (móvil y pantallas de coche Android).
 
@@ -8,4 +8,4 @@ Navegador gratuito estilo Waze + Google Maps para Android (móvil y pantallas de
 - Avisos propios estilo Waze: radar móvil, control, accidente, atasco, obras, peligro.
 - Tráfico en directo y rutas que esquivan atascos con tu clave gratuita de TomTom (opcional).
 
-La APK se descarga desde **Releases → PiruNav (última versión) → PiruNav.apk**.
+La APK se descarga desde **Releases → Pro Maps (última versión) → ProMaps.apk**.

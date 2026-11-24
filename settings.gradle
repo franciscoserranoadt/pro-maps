@@ -4,5 +4,5 @@ pluginManagement {
 dependencyResolutionManagement {
     repositories { google(); mavenCentral() }
 }
-rootProject.name = "PiruNav"
+rootProject.name = "ProMaps"
 include ':app'

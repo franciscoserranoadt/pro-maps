@@ -1,4 +1,4 @@
-/* PiruNav — navegador gratuito con radares, DGT y avisos tipo Waze */
+/* Pro Maps — navegador gratuito con radares, DGT y avisos tipo Waze */
 'use strict';
 
 const $ = s => document.querySelector(s);
@@ -278,7 +278,7 @@ async function boot() {
     try { loadCss(css); await loadScript(js); break; } catch (e) { console.log('lib ' + js); }
   }
   if (!window.maplibregl) {
-    $('#splashMsg').innerHTML = 'No hay conexión a internet.<br>PiruNav necesita datos móviles o wifi para cargar el mapa.';
+    $('#splashMsg').innerHTML = 'No hay conexión a internet.<br>Pro Maps necesita datos móviles o wifi para cargar el mapa.';
     const b = document.createElement('button'); b.textContent = 'Reintentar'; b.onclick = () => location.reload();
     $('#splash').appendChild(b); return;
   }

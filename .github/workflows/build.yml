@@ -39,7 +39,7 @@ jobs:
 
       - name: Renombrar APK
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk PiruNav.apk
+          cp app/build/outputs/apk/debug/app-debug.apk ProMaps.apk
           VC=$(grep -oP "versionCode \K\d+" app/build.gradle)
           VN=$(grep -oP "versionName '\K[^']+" app/build.gradle)
           echo "$VC $VN" > version.txt
@@ -47,12 +47,12 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: PiruNav
-          path: PiruNav.apk
+          name: ProMaps
+          path: ProMaps.apk
 
       - name: Publicar en Releases
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete ultima --yes --cleanup-tag || true
-          gh release create ultima PiruNav.apk version.txt --title "PiruNav (última versión)" --notes "APK para instalar en el móvil y en la pantalla del coche."
+          gh release create ultima ProMaps.apk version.txt --title "Pro Maps (última versión)" --notes "APK para instalar en el móvil y en la pantalla del coche."

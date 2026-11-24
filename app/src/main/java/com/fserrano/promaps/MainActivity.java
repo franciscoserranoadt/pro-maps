@@ -1,4 +1,4 @@
-package com.fserrano.pirunav;
+package com.fserrano.promaps;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
@@ -65,7 +65,7 @@ public class MainActivity extends Activity implements LocationListener {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        prefs = getSharedPreferences("pirunav", MODE_PRIVATE);
+        prefs = getSharedPreferences("promaps", MODE_PRIVATE);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().setStatusBarColor(0xFF0E1A2B);
         getWindow().setNavigationBarColor(0xFF0E1A2B);
@@ -84,7 +84,7 @@ public class MainActivity extends Activity implements LocationListener {
         web.setWebViewClient(new WebViewClient());
         web.setWebChromeClient(new WebChromeClient() {
             @Override public boolean onConsoleMessage(ConsoleMessage m) {
-                android.util.Log.d("PiruNav", m.message() + " @" + m.lineNumber());
+                android.util.Log.d("Pro Maps", m.message() + " @" + m.lineNumber());
                 return true;
             }
         });
@@ -126,7 +126,7 @@ public class MainActivity extends Activity implements LocationListener {
     public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
         super.onRequestPermissionsResult(code, perms, res);
         if (res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED) startGps();
-        else toast("Sin permiso de ubicación no puedo guiarte. Actívalo en Ajustes > Apps > PiruNav.");
+        else toast("Sin permiso de ubicación no puedo guiarte. Actívalo en Ajustes > Apps > Pro Maps.");
     }
 
     @SuppressLint("MissingPermission")
@@ -177,7 +177,7 @@ public class MainActivity extends Activity implements LocationListener {
         public void get(String id, String url) {
             pool.execute(() -> {
                 Request req = new Request.Builder().url(url)
-                        .header("User-Agent", "PiruNav/" + Updater.installedName(MainActivity.this) + " (Android)")
+                        .header("User-Agent", "ProMaps/" + Updater.installedName(MainActivity.this) + " (Android)")
                         .build();
                 try (Response r = HTTP.newCall(req).execute()) {
                     String body = r.body() != null ? r.body().string() : "";
@@ -191,7 +191,7 @@ public class MainActivity extends Activity implements LocationListener {
         @JavascriptInterface
         public void dgt(String id) {
             pool.execute(() -> {
-                Request req = new Request.Builder().url(Dgt.URL).header("User-Agent", "PiruNav (Android)").build();
+                Request req = new Request.Builder().url(Dgt.URL).header("User-Agent", "ProMaps (Android)").build();
                 try (Response r = HTTP.newCall(req).execute()) {
                     if (!r.isSuccessful() || r.body() == null) { reply(id, false, "HTTP " + r.code()); return; }
                     JSONArray arr = Dgt.parse(r.body().byteStream());
@@ -268,7 +268,7 @@ public class MainActivity extends Activity implements LocationListener {
                 if (!manual && prefs.getInt("skipVersion", 0) == info.code) return;
                 new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
                         .setTitle("Hay una versión nueva")
-                        .setMessage("PiruNav v" + info.name + " ya está disponible (tienes la v"
+                        .setMessage("Pro Maps v" + info.name + " ya está disponible (tienes la v"
                                 + Updater.installedName(this) + ").\n\nTus favoritos y avisos se mantienen.")
                         .setPositiveButton("Actualizar", (d, w) -> startUpdate())
                         .setNeutralButton("Esta no", (d, w) -> prefs.edit().putInt("skipVersion", info.code).apply())
@@ -282,7 +282,7 @@ public class MainActivity extends Activity implements LocationListener {
         if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
             new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
                     .setTitle("Falta un permiso")
-                    .setMessage("Para actualizarse, Android tiene que permitir que PiruNav instale apps.\n\n"
+                    .setMessage("Para actualizarse, Android tiene que permitir que Pro Maps instale apps.\n\n"
                             + "En la siguiente pantalla activa «Permitir de esta fuente», vuelve atrás y pulsa otra vez Actualizar.")
                     .setPositiveButton("Abrir ajustes", (d, w) -> {
                         try {
@@ -324,7 +324,7 @@ public class MainActivity extends Activity implements LocationListener {
         web.evaluateJavascript("window.onBack?window.onBack():false", v -> {
             if (!"true".equals(v)) {
                 new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
-                        .setMessage("¿Salir de PiruNav?")
+                        .setMessage("¿Salir de Pro Maps?")
                         .setPositiveButton("Salir", (d, w) -> finish())
                         .setNegativeButton("No", null)
                         .show();

@@ -1,4 +1,4 @@
-package com.fserrano.pirunav;
+package com.fserrano.promaps;
 
 import android.util.Xml;
 

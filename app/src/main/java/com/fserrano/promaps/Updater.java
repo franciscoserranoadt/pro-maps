@@ -1,4 +1,4 @@
-package com.fserrano.pirunav;
+package com.fserrano.promaps;
 
 import android.app.Activity;
 import android.app.PendingIntent;
@@ -18,8 +18,8 @@ import okhttp3.Response;
 /** Busca versiones nuevas en GitHub y las instala con el instalador de Android. */
 final class Updater {
 
-    static final String ACTION_STATUS = "com.fserrano.pirunav.INSTALL_STATUS";
-    private static final String BASE = "https://github.com/franciscoserranoadt/piru-nav/releases/download/ultima/";
+    static final String ACTION_STATUS = "com.fserrano.promaps.INSTALL_STATUS";
+    private static final String BASE = "https://github.com/franciscoserranoadt/pro-maps/releases/download/ultima/";
 
     static final class Info {
         final int code;
@@ -66,7 +66,7 @@ final class Updater {
 
     /** Descarga la APK y abre la pantalla de instalar. Hilo secundario. Devuelve un error o null. */
     static String downloadAndInstall(Activity a) {
-        Request req = new Request.Builder().url(BASE + "PiruNav.apk").build();
+        Request req = new Request.Builder().url(BASE + "ProMaps.apk").build();
         try (Response r = HTTP.newCall(req).execute()) {
             if (!r.isSuccessful() || r.body() == null) return "No se pudo descargar (error " + r.code() + ")";
             PackageInstaller installer = a.getPackageManager().getPackageInstaller();
@@ -75,7 +75,7 @@ final class Updater {
             int id = installer.createSession(params);
             try (PackageInstaller.Session session = installer.openSession(id)) {
                 try (InputStream in = r.body().byteStream();
-                     OutputStream out = session.openWrite("PiruNav.apk", 0, r.body().contentLength())) {
+                     OutputStream out = session.openWrite("ProMaps.apk", 0, r.body().contentLength())) {
                     byte[] buf = new byte[65536];
                     int n;
                     while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
