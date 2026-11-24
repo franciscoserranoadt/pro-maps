@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>PiruNav</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="map"></div>
+
+<!-- Pantalla de carga / error -->
+<div id="splash"><div class="logo">▲</div><div class="brand">PiruNav</div><div id="splashMsg">Cargando mapa…</div></div>
+
+<!-- Barra de búsqueda (modo libre) -->
+<div id="searchBar" class="card">
+  <span class="ico">🔍</span>
+  <input id="q" type="search" placeholder="¿A dónde vamos?" autocomplete="off">
+  <button id="btnSettings" class="iconbtn" title="Ajustes">⚙️</button>
+</div>
+
+<!-- Indicación de la próxima maniobra (navegando) -->
+<div id="banner" class="hidden">
+  <div id="bArrow">⬆</div>
+  <div class="bText">
+    <div id="bDist">—</div>
+    <div id="bStreet">—</div>
+  </div>
+  <div id="bThen" class="hidden"></div>
+</div>
+
+<!-- Aviso de radar / incidencia -->
+<div id="alert" class="hidden">
+  <div id="aIcon">📷</div>
+  <div class="aText"><div id="aTitle">Radar</div><div id="aSub"></div></div>
+  <div id="aDist">500 m</div>
+  <div id="aLimit" class="hidden">100</div>
+</div>
+
+<!-- Velocímetro -->
+<div id="speed"><div id="spdVal">0</div><div class="spdU">km/h</div></div>
+
+<!-- Botones laterales -->
+<div id="fabs">
+  <button id="btnTraffic" class="fab" title="Tráfico">🚦</button>
+  <button id="btnLayers" class="fab" title="Capas">🗺️</button>
+  <button id="btnReport" class="fab big warn" title="Avisar">⚠️</button>
+</div>
+<button id="btnRecenter" class="pill hidden">◎ Recentrar</button>
+
+<!-- Barra inferior navegando -->
+<div id="navBar" class="hidden">
+  <button id="btnStop" class="round red">✕</button>
+  <div class="navInfo">
+    <div id="nEta">--:--</div>
+    <div id="nRest">-- min · -- km</div>
+  </div>
+  <button id="btnRoutes" class="round" title="Vista general">🧭</button>
+</div>
+
+<!-- Hoja inferior genérica -->
+<div id="sheetBg" class="hidden"></div>
+<div id="sheet" class="hidden"><div class="grab"></div><div id="sheetBody"></div></div>
+
+<div id="toast" class="hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

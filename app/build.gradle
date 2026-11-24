@@ -1,0 +1,45 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.fserrano.pirunav'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.fserrano.pirunav'
+        minSdk 23
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+
+    signingConfigs {
+        fija {
+            // Firma fija: así cada versión se instala encima de la anterior
+            storeFile rootProject.file('pirunav.jks')
+            storePassword System.getenv('KEYSTORE_PASS') ?: ''
+            keyAlias 'pirunav'
+            keyPassword System.getenv('KEYSTORE_PASS') ?: ''
+        }
+    }
+
+    buildTypes {
+        debug {
+            if (System.getenv('KEYSTORE_PASS')) signingConfig signingConfigs.fija
+        }
+        release {
+            minifyEnabled false
+            if (System.getenv('KEYSTORE_PASS')) signingConfig signingConfigs.fija
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+}
