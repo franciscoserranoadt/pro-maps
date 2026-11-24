@@ -14,7 +14,8 @@ const DEF = { voice: true, radars: true, semaforos: true, incid: true, reports: 
   fuel: 'g95', gas: true, limit: true, limitWarn: true, ttinc: true,
   b3d: true, wxfx: true, wxchip: true, trees: false, lamps: false, car: 'arrow', carColor: '#33ccff', lanes: true,
   label: 'c', zbe: true, zbeShow: true, zbeAvoid: false, parkNear: true, syncCode: '', darkLvl: 'mas',
-  fatigue: true, hazards: true, curves: true, offlineRoute: true, routeType: 'fastest' };
+  fatigue: true, hazards: true, curves: true, offlineRoute: true, routeType: 'fastest',
+  zoomLvl: 'cerca', autoZoom: true, overhead: true, persp: true, carSize: 'grande' };
 const cfg = Object.assign({}, DEF, store.get('cfg', {}));
 const saveCfg = () => store.set('cfg', cfg);
 
@@ -346,7 +347,7 @@ async function boot() {
   meMarker = new maplibregl.Marker({ element: el, rotationAlignment: 'map', pitchAlignment: 'map' }).setLngLat(start).addTo(map);
 
   map.once('load', () => {
-    drawPark();
+    drawPark(); applyCar();
     $('#splash').classList.add('hidden');
     const sh = N && N.takeShared ? N.takeShared() : ''; if (sh) onShared(sh);
   });
@@ -917,7 +918,7 @@ function startNav() {
   if (me) navUpdate();
 }
 function stopNav(silent) {
-  navigating = false; active = null; dest = null; stops = []; navAlts = []; showLanes(null); sharedEta = null; hideNotice();
+  navigating = false; active = null; dest = null; stops = []; navAlts = []; showLanes(null); nav.nextDist = null; nav.nextKind = null; sharedEta = null; hideNotice();
   parkings = []; $('#parkPill').classList.add('hidden'); if (map && map.getSource('parkings')) map.getSource('parkings').setData({ type: 'FeatureCollection', features: [] });
   setTimeout(() => map && map.resize(), 50); hideAltPrompt(); declinedAlts.length = 0; setDestMarker(null);
   document.body.classList.remove('nav'); $('#btnGas').classList.add('hidden'); $('#btnSet2').classList.add('hidden'); $('#routeBar').classList.add('hidden');
@@ -981,6 +982,7 @@ function navUpdate() {
   }
   const st = r.steps[nav.step]; if (!st) return;
   const dm = Math.max(0, st.at - nav.along);
+  nav.nextDist = dm; nav.nextKind = st.kind;
   updateLanes(r, st, dm);
   const rest = Math.max(0, r.total - nav.along);
   $('#bArrow').textContent = ARROW[st.kind] || '⬆';
@@ -1122,12 +1124,27 @@ window.onGps = (lat, lon, spd, brg, acc, isGps) => {
 };
 function moveCamera() {
   const kmh = speedMs * 3.6;
-  const z = navigating ? (kmh > 100 ? 15 : kmh > 70 ? 15.6 : kmh > 40 ? 16.3 : 17) : (kmh > 70 ? 14.8 : 15.8);
+  const off = { lejos: -1, normal: 0, cerca: 0.8, muycerca: 1.6 }[cfg.zoomLvl] || 0;
+  let target;
+  if (cfg.autoZoom) {
+    // A más velocidad, más lejos; a menos velocidad, más cerca (sin saltos)
+    const f = Math.max(0, Math.min(1, (kmh - 15) / 105));
+    target = navigating ? 17.2 - f * 2.4 : 16.6 - f * 2.2;
+  } else target = navigating ? 16.6 : 16.2;
+  target += off;
+  // Vista cenital (desde arriba) al acercarse a un cruce, rotonda o salida
+  const junction = navigating && cfg.overhead && nav.nextKind && !/^(straight|start|dest)$/.test(nav.nextKind) && nav.nextDist != null &&
+    nav.nextDist < Math.max(120, Math.min(speedMs * 9, 350));
+  if (junction) target += 0.6;
+  camZ = camZ == null ? target : camZ + (target - camZ) * 0.35;
+  const z = Math.max(12, Math.min(19.5, camZ));
+  const pitch = junction ? 0 : !cfg.persp ? 0 : navigating ? 55 : (kmh > 8 ? 40 : 0);
   const h = map.getCanvas().clientHeight;
-  map.easeTo({ center: meMarker.getLngLat(), zoom: z, bearing: navigating || kmh > 8 ? heading : map.getBearing(), pitch: navigating ? 55 : (kmh > 8 ? 40 : 0),
+  map.easeTo({ center: meMarker.getLngLat(), zoom: z, bearing: navigating || kmh > 8 ? heading : map.getBearing(), pitch,
     padding: navigating && landscapeNav() ? { top: Math.round(h * 0.3), bottom: 0, left: Math.round(map.getCanvas().clientWidth * 0.36), right: 0 }
       : { top: navigating ? Math.round(h * 0.4) : 0, bottom: 0, left: 0, right: 0 }, duration: 950, easing: t => t });
 }
+let camZ = null;
 function landscapeNav() { return innerWidth > innerHeight && innerWidth >= 700; }
 function setFollow(on) {
   follow = on; $('#btnRecenter').classList.toggle('hidden', on || preview);
@@ -1237,6 +1254,12 @@ function settingsPage(k) {
     tg('ttinc', '🚗 Atascos e incidencias de TomTom', 'Se ven en el mapa y te avisa con el retraso en minutos') +
     tg('incid', '⚠️ Incidencias de la DGT', 'Accidentes, obras, cortes, balizas V16');
   if (k === 'aspecto') h +=
+    '<div class="sec">Vista al conducir</div>' +
+    sel('zoomLvl', '🔍 Distancia de la cámara', [['lejos', 'Lejos'], ['normal', 'Normal'], ['cerca', 'Cerca'], ['muycerca', 'Muy cerca']]) +
+    tg('autoZoom', '🚀 Zoom automático', 'A más velocidad se aleja y a menos velocidad se acerca') +
+    tg('overhead', '⬇️ Vista desde arriba en cruces y rotondas', 'Al acercarte a un giro, rotonda o salida la cámara se pone cenital') +
+    tg('persp', '📐 Perspectiva inclinada (3D)', 'Si lo quitas, el mapa siempre se ve desde arriba') +
+    sel('carSize', '🚗 Tamaño del icono del vehículo', [['normal', 'Normal'], ['grande', 'Grande'], ['muygrande', 'Muy grande']]) +
     '<div class="sec">Mapa</div>' +
     sel('style', '🗺️ Tipo de mapa', [['auto', 'Automático (claro de día, oscuro de noche)'], ['light', 'Claro'], ['dark', 'Oscuro'], ['soft', 'Suave'], ['sat', 'Satélite España (IGN)'], ['satw', 'Satélite mundial']]) +
     sel('darkLvl', '🌙 Brillo del modo oscuro', [['normal', 'Oscuro'], ['mas', 'Más claro'], ['mucho', 'Mucho más claro']]) +
@@ -1273,6 +1296,7 @@ function settingsPage(k) {
     const key = i.dataset.k; cfg[key] = i.checked; saveCfg();
     lookChanged(key);
     if (key === 'limit' && !cfg.limit) $('#limit').classList.add('hidden');
+    if (key === 'autoZoom' || key === 'overhead' || key === 'persp') { camZ = null; if (follow && me) moveCamera(); }
     if (key === 'zbeShow') ['zbeFill', 'zbeLine'].forEach(id => map.getLayer(id) && map.setLayoutProperty(id, 'visibility', cfg.zbeShow ? 'visible' : 'none'));
     if (key === 'gas' && map.getLayer('gas')) map.setLayoutProperty('gas', 'visibility', cfg.gas ? 'visible' : 'none');
     if (key === 'ttinc' || key === 'incid') { refreshPois(); if (key === 'ttinc' && cfg.ttinc) loadTT(); }
@@ -1282,6 +1306,8 @@ function settingsPage(k) {
     const key = sl.dataset.sel; cfg[key] = sl.value; saveCfg();
     if (key === 'style' || key === 'darkLvl') applyStyle(true);
     if (key === 'fuel') refreshGas();
+    if (key === 'carSize') applyCar();
+    if (key === 'zoomLvl') { camZ = null; if (follow && me) moveCamera(); }
   });
   // Botones
   const on = (id, f) => { const el = document.getElementById(id); if (el) el.onclick = f; };
@@ -1595,7 +1621,13 @@ function carSheet() {
   document.querySelectorAll('[data-col]').forEach(b => b.onclick = () => { cfg.carColor = b.dataset.col; saveCfg(); applyCar(); carSheet(); });
   $('#carOk').onclick = () => setPage === 'aspecto' ? settingsPage('aspecto') : closeSheet();
 }
-function applyCar() { const el = document.getElementById('meIcon'); if (el) el.innerHTML = carSvg(cfg.car, cfg.carColor); }
+function applyCar() {
+  const el = document.getElementById('meIcon'); if (!el) return;
+  el.innerHTML = carSvg(cfg.car, cfg.carColor);
+  const px = { normal: 46, grande: 62, muygrande: 80 }[cfg.carSize] || 46;
+  el.style.width = el.style.height = px + 'px';
+  el.querySelector('svg').style.width = el.querySelector('svg').style.height = px + 'px';
+}
 
 /* ====================== Tiempo real (Open-Meteo) y efectos ====================== */
 let wx = null;
