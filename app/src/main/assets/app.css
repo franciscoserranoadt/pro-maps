@@ -139,3 +139,16 @@ body.nav #limit{bottom:calc(108px + var(--safe-b))}
 .price{font-weight:800;font-size:18px}
 .cheap{color:#7CFC9A}.mid{color:#ffcc66}.dear{color:#ff8a80}
 input.inl{width:100%;background:var(--panel2);color:var(--txt);border:1px solid #2d4a73;border-radius:12px;padding:13px;font-size:17px;margin-bottom:8px}
+
+#altPrompt{position:absolute;z-index:9;left:8px;right:8px;max-width:560px;bottom:calc(98px + var(--safe-b));background:#2e1065;
+  border:3px solid #b39dfa;border-radius:20px;padding:12px 14px 10px;box-shadow:0 8px 26px rgba(0,0,0,.6)}
+.apTop{display:flex;align-items:center;gap:12px}
+.apIco{font-size:36px}
+.apTxt{flex:1;min-width:0}
+#apTitle{font-size:21px;font-weight:800}
+#apSub{font-size:14px;color:#d6ccff;margin-top:2px}
+.apBtns{display:flex;gap:10px;margin-top:10px}
+.apBtns .btn{margin-top:0;font-size:18px;padding:14px}
+.apBtns #apYes{background:#7c3aed}
+.apBar{height:5px;background:#4c1d95;border-radius:3px;margin-top:10px;overflow:hidden}
+#apFill{height:100%;width:100%;background:#b39dfa}

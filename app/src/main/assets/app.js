@@ -780,7 +780,7 @@ function startNav() {
   if (me) navUpdate();
 }
 function stopNav(silent) {
-  navigating = false; active = null; dest = null; stops = []; navAlts = []; setDestMarker(null);
+  navigating = false; active = null; dest = null; stops = []; navAlts = []; hideAltPrompt(); declinedAlts.length = 0; setDestMarker(null);
   document.body.classList.remove('nav'); $('#btnGas').classList.add('hidden');
   $('#searchBar').classList.remove('hidden'); $('#banner').classList.add('hidden'); $('#navBar').classList.add('hidden');
   drawRoutes(); setFollow(true);
@@ -803,7 +803,7 @@ async function reroute() {
     Object.assign(nav, { idx: 0, step: 0, off: 0, along: 0 });
     for (const k in nav.said) if (k.startsWith('s')) delete nav.said[k];
     navAlts = rs.slice(1).map(r => markDivergence(prepRoute(r), 0)).filter(Boolean); altAt = Date.now();
-    drawRoutes();
+    drawRoutes(); maybeOfferAlt();
   } catch (e) { console.log('reroute ' + e.message); }
 }
 
@@ -1108,7 +1108,11 @@ async function loadTT() {
     }
     ttInc = Object.values(out);
     refreshPois();
-    if (navigating) drawRoutes();
+    if (navigating) {
+      drawRoutes();
+      const jamAhead = (active && active.pois || []).some(o => o.at > nav.along && o.at - nav.along < 30000 && (o.p.delay || 0) >= 120);
+      if (jamAhead && !altBusy && Date.now() - altAt > 45000) refreshAlts();
+    }
   } catch (e) { console.log('TomTom: ' + e.message); }
   ttBusy = false;
 }
@@ -1129,6 +1133,65 @@ function markDivergence(alt, alongNow) {
   alt.divAt = alongNow + Math.max(0, divCum - 50);
   return alt;
 }
+function switchToAlt(a) {
+  const i = navAlts.indexOf(a); if (i < 0 || !active) return;
+  hideAltPrompt();
+  const old = active;
+  active = a; navAlts.splice(i, 1);
+  Object.assign(nav, { idx: 0, step: 0, off: 0, along: 0, lastReroute: Date.now() });
+  for (const k in nav.said) if (k.startsWith('s')) delete nav.said[k];
+  navAlts = navAlts.concat([markDivergence(old, 0)]).filter(Boolean);
+  say('Ruta cambiada', true); drawRoutes(); navUpdate();
+  setTimeout(refreshAlts, 20000);
+}
+
+/* --- Pregunta automática cuando hay una ruta bastante más rápida --- */
+const ALT_GAIN = 180; // segundos (3 min)
+let altPromptFor = null, altPromptT = null;
+const declinedAlts = [];
+const altSig = a => { const mid = a.coords[Math.floor(a.coords.length / 2)]; return { mid, len: a.total }; };
+function wasDeclined(a) {
+  const s = altSig(a);
+  return declinedAlts.some(d => dist(d.mid, s.mid) < 1500 && Math.abs(d.len - s.len) < Math.max(1500, s.len * 0.1));
+}
+function maybeOfferAlt() {
+  if (!navigating || !active || altPromptFor || !navAlts.length) return;
+  const restA = active.time * Math.max(0, active.total - nav.along) / active.total;
+  let best = null;
+  for (const a of navAlts) {
+    if (a.divAt - nav.along < 300) continue;      // ya no da tiempo a tomarla
+    if (wasDeclined(a)) continue;
+    const gain = restA - a.time;
+    if (gain >= ALT_GAIN && (!best || gain > best.gain)) best = { a, gain };
+  }
+  if (best) showAltPrompt(best.a, best.gain);
+}
+function showAltPrompt(a, gain) {
+  altPromptFor = a;
+  const m = Math.round(gain / 60);
+  const jam = (active.pois || []).find(o => o.at > nav.along && (o.p.cat === 'retencion' || o.p.cat === 'accidente' || o.p.cat === 'corte'));
+  $('#apTitle').textContent = 'Ruta ' + m + ' min más rápida';
+  $('#apSub').textContent = (jam ? CAT[jam.p.cat].n + ' en tu ruta a ' + fmtDist(jam.at - nav.along) + ' · ' : '') + 'Llegarías a las ' +
+    new Date(Date.now() + a.time * 1000).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+  $('#altPrompt').classList.remove('hidden');
+  const fill = $('#apFill'); fill.style.transition = 'none'; fill.style.width = '100%';
+  requestAnimationFrame(() => requestAnimationFrame(() => { fill.style.transition = 'width 15s linear'; fill.style.width = '0%'; }));
+  beep(1); vib(200);
+  const ART = { accidente: 'un accidente', retencion: 'una retención', corte: 'la carretera cortada' };
+  say((jam ? 'Hay ' + ART[jam.p.cat] + ' más adelante. ' : '') + 'Hay una ruta ' + m + (m === 1 ? ' minuto' : ' minutos') + ' más rápida. ¿Quieres cambiar?');
+  clearTimeout(altPromptT);
+  altPromptT = setTimeout(() => declineAlt(true), 15000);
+}
+function hideAltPrompt() { clearTimeout(altPromptT); altPromptFor = null; $('#altPrompt').classList.add('hidden'); }
+function declineAlt(timeout) {
+  if (!altPromptFor) return;
+  declinedAlts.push(altSig(altPromptFor));
+  hideAltPrompt();
+  if (!timeout) say('Vale, seguimos por tu ruta');
+}
+$('#apYes').onclick = () => { if (altPromptFor) switchToAlt(altPromptFor); };
+$('#apNo').onclick = () => declineAlt(false);
+
 async function refreshAlts() {
   if (!navigating || !me || !dest) return;
   altBusy = true; altAt = Date.now();
@@ -1137,6 +1200,7 @@ async function refreshAlts() {
     if (!navigating) return;
     navAlts = rs.map(r => markDivergence(prepRoute(r), nav.along)).filter(Boolean).slice(0, 2);
     drawRoutes();
+    maybeOfferAlt();
   } catch (e) { console.log('alternativas ' + e.message); }
   altBusy = false;
 }
@@ -1150,16 +1214,7 @@ function altSheet(i) {
     '<div class="row"><div class="ri">🕘</div><div class="rt"><div class="r1">Llegada ' + eta + ' · ' + (d > 0 ? d + ' min más lenta' : d < 0 ? (-d) + ' min más rápida' : 'mismo tiempo') +
     '</div><div class="r2">' + fmtDist(a.len) + ' · 📷 ' + nCam + ' radares · ⚠️ ' + nInc + ' avisos' + (a.delay > 60 ? ' · 🔴 +' + fmtTime(a.delay) + ' atasco' : '') + '</div></div></div>' +
     '<button class="btn" id="aSw">Cambiar a esta ruta</button><button class="btn alt" id="aNo">Seguir con la mía</button>');
-  $('#aSw').onclick = () => {
-    closeSheet();
-    const old = active;
-    active = a; navAlts.splice(i, 1);
-    Object.assign(nav, { idx: 0, step: 0, off: 0, along: 0, lastReroute: Date.now() });
-    for (const k in nav.said) if (k.startsWith('s')) delete nav.said[k];
-    navAlts = navAlts.concat([markDivergence(old, 0)]).filter(Boolean);
-    say('Ruta cambiada', true); drawRoutes(); navUpdate();
-    setTimeout(refreshAlts, 20000);
-  };
+  $('#aSw').onclick = () => { closeSheet(); switchToAlt(a); };
   $('#aNo').onclick = closeSheet;
 }
 
@@ -1492,6 +1547,7 @@ window.onShared = onShared;
 
 /* ====================== Botón atrás de Android ====================== */
 window.onBack = () => {
+  if (altPromptFor) { declineAlt(false); return true; }
   if (sheetOpen()) { closeSheet(); return true; }
   if (pickFor) { pickCancel(); return true; }
   if (document.activeElement === $('#q')) { $('#q').blur(); return true; }
