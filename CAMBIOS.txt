@@ -1,1 +1,1 @@
-Quitado el botón «Probar la dash cam» de Ajustes > Sobre la app.
+Móvil en horizontal: botones, velocímetro y panel de Casa/Trabajo más compactos para que no se tapen entre ellos.
