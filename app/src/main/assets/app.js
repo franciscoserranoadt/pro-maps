@@ -1363,7 +1363,7 @@ const SET_LOOK = { aspecto: ['layers', 'k-blue', 'mapa colores oscuro claro sate
   zbe: ['leaf', 'k-green', 'zona bajas emisiones etiqueta eco madrid'],
   coche: ['fuel', 'k-red', 'combustible gasolina diesel gasolineras parking aparcamiento'],
   sync: ['car', 'k-violet', 'vincular movil coche junsun aparcamiento sincronizar'],
-  app: ['gear', 'k-gray', 'actualizar version radares dash cam camara' ] };
+  app: ['gear', 'k-gray', 'actualizar version radares' ] };
 function settingsSheet() {
   setPage = null; backTo = null;
   const row = (k, attr) => { const pg = SET_PAGES[k], L = SET_LOOK[k];
@@ -1448,7 +1448,6 @@ function settingsPage(k) {
     tg('offlineRoute', '📥 Guardar el mapa de cada ruta', 'Al empezar una ruta se descarga el mapa del camino') +
     btn('bZone', '📥 Descargar el mapa de mi zona (30 km)') + btn('bCache', '🗂️ Mapa guardado en el móvil');
   if (k === 'app') h +=
-    btn('bCam', '📷 Probar la dash cam') +
     btn('bUpd', '🔄 Buscar actualización (tienes la v' + esc(N ? N.version() : 'web') + ')') +
     btn('bRad', '📷 Actualizar los radares ahora') +
     '<div class="muted" style="margin-top:12px">Mapa © OpenStreetMap y OpenFreeMap · Rutas Valhalla (FOSSGIS) · Incidencias DGT (datos abiertos) · Búsqueda Photon y CartoCiudad (IGN) · ' +
@@ -1477,7 +1476,7 @@ function settingsPage(k) {
   // Botones
   const on = (id, f) => { const el = document.getElementById(id); if (el) el.onclick = () => { if (/^(bCar|bSync|bCache)$/.test(id)) backTo = () => settingsPage(k); f(); }; };
   on('bTest', () => say('Radar fijo a 500 metros. Límite 100.', true));
-  on('bCam', camTest);
+
   on('bCar', carSheet);
   on('bSync', syncSheet);
   on('bZone', () => { closeSheet(); prefetchZone(); });
