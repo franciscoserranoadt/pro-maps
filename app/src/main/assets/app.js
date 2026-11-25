@@ -4,12 +4,69 @@
 const $ = s => document.querySelector(s);
 const N = window.Nativo || null;
 
+
+/* ====================== Iconos de línea (dibujados a mano, sin librerías) ====================== */
+const SV = (inner, fill) => '<svg viewBox="0 0 24 24" fill="' + (fill ? 'currentColor' : 'none') + '" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + inner + '</svg>';
+function gearPath() {
+  let d = '';
+  for (let i = 0; i < 8; i++) {
+    const a0 = i * 45 - 11, a1 = i * 45 + 11, r1 = 9.6, r2 = 7.4;
+    const p = (a, r) => (12 + r * Math.cos(a * Math.PI / 180)).toFixed(2) + ' ' + (12 + r * Math.sin(a * Math.PI / 180)).toFixed(2);
+    d += (i ? 'L' : 'M') + p(a0 - 11, r2) + 'L' + p(a0, r1) + 'L' + p(a1, r1) + 'L' + p(a1 + 11, r2);
+  }
+  return d + 'Z';
+}
+const IC = {
+  search: SV('<circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/>'),
+  mic: SV('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>'),
+  gear: '<svg viewBox="0 0 24 24"><path d="' + gearPath() + '" fill="currentColor"/><circle cx="12" cy="12" r="3.2" fill="var(--bgx,#0e1a2b)"/></svg>',
+  flag: SV('<path d="M6 21V4h11l-2.5 4.5L17 13H6"/>'),
+  layers: SV('<path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/>'),
+  plus: SV('<path d="M12 5v14M5 12h14"/>'), minus: SV('<path d="M5 12h14"/>'),
+  close: SV('<path d="M6 6l12 12M18 6L6 18"/>'),
+  target: SV('<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>'),
+  home: SV('<path d="M3 11l9-7 9 7"/><path d="M5.5 9.5V20h13V9.5"/><path d="M10 20v-5h4v5"/>'),
+  work: SV('<rect x="3" y="7.5" width="18" height="12.5" rx="2.5"/><path d="M9 7.5V5.5a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 5.5v2M3 12.5h18"/>'),
+  star: SV('<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/>'),
+  fuel: SV('<rect x="4" y="3.5" width="10" height="17" rx="1.5"/><path d="M6.5 7h5v4h-5z"/><path d="M14 9h2.5l2 2.5V18a1.5 1.5 0 0 1-3 0v-3.5H14"/>'),
+  food: SV('<path d="M7 3v8M4.5 3v4.5a2.5 2.5 0 0 0 5 0V3M7 11v10M16.5 3c-2 1.5-2.5 6 0 8.5V21M16.5 3v18"/>'),
+  car: SV('<path d="M5 16V11l2-5h10l2 5v5"/><path d="M3.5 16h17v3h-17z"/><circle cx="7.5" cy="13" r="1" fill="currentColor"/><circle cx="16.5" cy="13" r="1" fill="currentColor"/>'),
+  chart: SV('<path d="M4 20h16"/><path d="M7 20v-6M12 20V8M17 20v-9"/>'),
+  music: SV('<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>'),
+  vol: SV('<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>'),
+  bell: SV('<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>'),
+  mute: SV('<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/>'),
+  traffic: SV('<rect x="8" y="2.5" width="8" height="19" rx="3"/><circle cx="12" cy="7" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="17" r="1.4" fill="currentColor"/>'),
+  building: SV('<path d="M5 21V6l7-3 7 3v15"/><path d="M9 9h1M14 9h1M9 13h1M14 13h1M9 17h1M14 17h1M3 21h18"/>'),
+  camera: SV('<path d="M4 8h3.5l1.5-2.5h6L16.5 8H20v11H4z"/><circle cx="12" cy="13.2" r="3.3"/>'),
+  bulb: SV('<path d="M9 17.5h6M10 21h4"/><path d="M8.5 14.5a5.5 5.5 0 1 1 7 0c-.8.7-1 1.5-1 3h-5c0-1.5-.2-2.3-1-3z"/>'),
+  tree: SV('<path d="M12 3l-5.5 8h3l-4 6h13l-4-6h3z"/><path d="M12 17v4"/>'),
+  cloud: SV('<path d="M7 18.5a4 4 0 0 1-.5-8A5.5 5.5 0 0 1 17 9a4.5 4.5 0 0 1 .5 9.5z"/>'),
+  shadow: SV('<circle cx="9" cy="9" r="4"/><path d="M9 2v1.5M9 14.5V16M2 9h1.5M14.5 9H16M4 4l1 1M13 13l1 1M14 4l-1 1M4 14l1-1"/><path d="M12 21h9l-3-5h-4z" fill="currentColor" opacity=".45"/>'),
+  alert: SV('<path d="M12 3.5l9.5 16.5h-19z"/><path d="M12 10v4.5M12 17.5v.01"/>'),
+  leaf: SV('<path d="M5 19c0-8 5-14 15-14 0 10-6 15-14 15"/><path d="M5 19l7-7"/>'),
+  pin: SV('<path d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/>'),
+  sun: SV('<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4"/>'),
+  moon: SV('<path d="M19 14.5A7.5 7.5 0 0 1 9.5 5a7.5 7.5 0 1 0 9.5 9.5z"/>'),
+  auto: SV('<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/>'),
+  police: SV('<path d="M12 3l7 3v5c0 5-3.2 8.3-7 10-3.8-1.7-7-5-7-10V6z"/><path d="M12 8.5l1.2 2.4 2.6.4-1.9 1.8.5 2.6-2.4-1.3-2.4 1.3.5-2.6-1.9-1.8 2.6-.4z" fill="currentColor" stroke="none"/>'),
+  crash: SV('<path d="M4 17v-4l2-4.5h8l2 4.5v4"/><path d="M3 17h14v2.5H3z"/><path d="M19 3l.8 2.2L22 4.5l-1.3 1.8L22 8l-2.2-.3L19 10l-.8-2.3"/>'),
+  jam: SV('<path d="M3 14v-3l1.5-3h6l1.5 3v3z"/><path d="M12 18v-3l1.5-3h6l1.5 3v3z"/><circle cx="5.5" cy="14" r="1" fill="currentColor"/><circle cx="14.5" cy="18" r="1" fill="currentColor"/>'),
+  works: SV('<path d="M4 20h16M7 20l3-12h4l3 12M8.5 14h7"/><path d="M10 8l2-4 2 4"/>'),
+  wrench: SV('<path d="M14.5 6.5a4 4 0 0 0 5 5l-9 9a2.1 2.1 0 0 1-3-3l9-9a4 4 0 0 0-2-2z"/>'),
+  view2d: SV('<path d="M4 6h16v12H4z"/>'), view3d: SV('<path d="M7 7h13l-3 11H4z"/>')
+};
+/** Pone el icono a todos los elementos con data-ic="nombre" */
+function paintIcons(root) { (root || document).querySelectorAll('[data-ic]').forEach(el => { const k = el.dataset.ic; if (IC[k] && el.dataset.icDone !== k) { el.innerHTML = IC[k]; el.dataset.icDone = k; } }); }
+paintIcons();
+
 /* ====================== Ajustes y almacenamiento ====================== */
 const store = {
   get(k, d) { try { const v = localStorage.getItem('pn_' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
   set(k, v) {
     try { localStorage.setItem('pn_' + k, JSON.stringify(v)); } catch (e) { }
     if (SYNC_KEYS[k] && !store.quiet && typeof stateChanged === 'function') stateChanged();
+    if ((k === 'favs' || k === 'favList') && typeof updateHome === 'function') setTimeout(updateHome, 50);
   }
 };
 /* Lo que se copia al otro dispositivo vinculado (ajustes, Casa/Trabajo, favoritos y rutas guardadas) */
@@ -22,7 +79,7 @@ const DEF = { voice: true, radars: true, semaforos: true, incid: true, reports: 
   b3d: true, wxfx: true, wxchip: true, trees: false, lamps: false, car: 'arrow', carColor: '#33ccff', lanes: true,
   label: 'c', zbe: true, zbeShow: true, zbeAvoid: false, parkNear: true, syncCode: '', darkLvl: 'mas',
   fatigue: true, hazards: true, curves: true, offlineRoute: true, routeType: 'fastest',
-  zoomLvl: 'cerca', autoZoom: true, overhead: true, persp: true, carSize: 'grande', syncSettings: true, sound: 'all', shadows: true };
+  zoomLvl: 'cerca', autoZoom: true, overhead: true, persp: true, carSize: 'grande', syncSettings: true, sound: 'all', shadows: true, northUp: false };
 const cfg = Object.assign({}, DEF, store.get('cfg', {}));
 const saveCfg = () => store.set('cfg', cfg);
 
@@ -349,7 +406,7 @@ async function boot() {
   });
   map.on('mouseenter', 'pois', () => map.getCanvas().style.cursor = 'pointer');
   map.on('click', e => {
-    hideMediaCard();
+    hideMediaCard(); $('#reportPop').classList.add('hidden');
     const own = ['pois', 'gas', 'parkings', 'routeAltHit', 'haz'].filter(id => map.getLayer(id));
     if (own.length && map.queryRenderedFeatures(e.point, { layers: own }).length) return; // ya lo atiende su propia capa
     const box = [[e.point.x - 14, e.point.y - 14], [e.point.x + 14, e.point.y + 14]];
@@ -384,11 +441,12 @@ async function boot() {
   restorePark(); tripRestore();
   setTimeout(syncPoll, 3000); setInterval(syncPoll, 120000);
   setTimeout(pushState, 9000);
+  updateHome();
   setTimeout(() => { if (N && N.mediaState) window.onMedia(N.mediaState()); }, 2000);
   addEventListener('resize', () => map && setTimeout(() => map.resize(), 100));
   setInterval(() => { const every = navigating ? 180000 : 300000; if (Date.now() - ttAt > every) loadTT(); }, 30000); setInterval(() => loadFuel(false), 60 * 60000);
   setInterval(() => { cleanReports(); refreshPois(); applyStyle(false); updateLight(); }, 5 * 60000);
-  map.on('rotate', () => carShadow());
+  map.on('rotate', () => { carShadow(); updateNorth(); });
   if (!N && navigator.geolocation) {
     navigator.geolocation.watchPosition(p => onGps(p.coords.latitude, p.coords.longitude, p.coords.speed == null ? -1 : p.coords.speed,
       p.coords.heading == null ? -1 : p.coords.heading, p.coords.accuracy, 1), null, { enableHighAccuracy: true });
@@ -1153,6 +1211,9 @@ window.onGps = (lat, lon, spd, brg, acc, isGps) => {
   meMarker.setLngLat(pos); meMarker.setRotation(heading);
   if (!onGps.shAt || now - onGps.shAt > 3000) { onGps.shAt = now; carShadow(); }
   $('#spdVal').textContent = Math.round(speedMs * 3.6);
+  { const arc = document.getElementById('spdArc'); if (arc) { const L = 200, top = Math.max(roadLimit ? roadLimit * 1.3 : 130, 60);
+    arc.style.strokeDasharray = (Math.min(1, speedMs * 3.6 / top) * L).toFixed(1) + ' 1000'; } }
+  if (!onGps.homeAt || now - onGps.homeAt > 10000) { onGps.homeAt = now; updateHome(); }
   if (navigating) { navUpdate(); renderRouteBar(); }
   updateTramo();
   checkAlerts();
@@ -1177,7 +1238,7 @@ function moveCamera() {
     const f = Math.max(0, Math.min(1, (kmh - 15) / 105));
     target = navigating ? 17.2 - f * 2.4 : 16.6 - f * 2.2;
   } else target = navigating ? 16.6 : 16.2;
-  target += off;
+  target += off + zoomAdj;
   // Vista cenital (desde arriba) al acercarse a un cruce, rotonda o salida
   const junction = navigating && cfg.overhead && nav.nextKind && !/^(straight|start|dest)$/.test(nav.nextKind) && nav.nextDist != null &&
     nav.nextDist < Math.max(120, Math.min(speedMs * 9, 350));
@@ -1186,7 +1247,7 @@ function moveCamera() {
   const z = Math.max(12, Math.min(19.5, camZ));
   const pitch = junction ? 0 : !cfg.persp ? 0 : navigating ? 55 : (kmh > 8 ? 40 : 0);
   const h = map.getCanvas().clientHeight;
-  map.easeTo({ center: meMarker.getLngLat(), zoom: z, bearing: navigating || kmh > 8 ? heading : map.getBearing(), pitch,
+  map.easeTo({ center: meMarker.getLngLat(), zoom: z, bearing: cfg.northUp ? 0 : (navigating || kmh > 8 ? heading : map.getBearing()), pitch,
     padding: navigating && landscapeNav() ? { top: Math.round(h * 0.3), bottom: 0, left: Math.round(map.getCanvas().clientWidth * 0.36), right: 0 }
       : { top: navigating ? Math.round(h * 0.4) : 0, bottom: 0, left: 0, right: 0 }, duration: 950, easing: t => t });
 }
@@ -1202,12 +1263,16 @@ $('#btnRecenter').onclick = () => setFollow(true);
 function reportSheet(pos) {
   const p = pos || me;
   if (!p) { toast('Esperando señal GPS…'); return; }
-  const opts = ['movil', 'policia', 'accidente', 'atasco', 'obras', 'peligro', 'v16', 'radar'];
-  const names = { movil: 'Radar móvil', policia: 'Control', accidente: 'Accidente', atasco: 'Atasco', obras: 'Obras', peligro: 'Peligro', v16: 'Coche parado', radar: 'Radar fijo nuevo' };
-  openSheet('<div class="sTitle">¿Qué hay ' + (pos ? 'en ese punto' : 'aquí') + '?</div><div class="grid">' +
-    opts.map(k => '<button class="gbtn" data-k="' + k + '"><b>' + CAT[k].e + '</b>' + names[k] + '</button>').join('') + '</div>' +
-    '<div class="muted" style="margin-top:12px">Los avisos se borran solos: radar móvil y control a las 2 h, atasco a la hora, obras a las 2 semanas. El radar fijo nuevo se queda siempre.</div>');
-  document.querySelectorAll('.gbtn').forEach(b => b.onclick = () => { closeSheet(); addReport(b.dataset.k, p); });
+  const items = [['policia', 'police', '#64b5f6', 'Control'], ['accidente', 'crash', '#ef5350', 'Accidente'], ['peligro', 'alert', '#ffca28', 'Peligro'],
+    ['v16', 'wrench', '#ffa726', 'Averiado'], ['atasco', 'jam', '#ff7043', 'Atasco'], ['obras', 'works', '#ffa726', 'Obras'],
+    ['movil', 'camera', '#64b5f6', 'Radar móvil'], ['radar', 'camera', '#ef5350', 'Radar fijo nuevo']];
+  const el = $('#reportPop');
+  el.innerHTML = '<div class="rpHead"><b>' + (pos ? 'Avisar en ese punto' : 'Avisar aquí') + '</b><button class="circ sm" id="rpX">' + IC.close + '</button></div><div class="rpGrid">' +
+    items.map(([k, ic, col, n]) => '<button class="rpT" data-k="' + k + '"><span class="ic" style="background:' + col + '2e;color:' + col + '">' + IC[ic] + '</span>' + n + '</button>').join('') + '</div>';
+  el.classList.remove('hidden');
+  $('#rpX').onclick = () => el.classList.add('hidden');
+  el.querySelectorAll('[data-k]').forEach(b => b.onclick = () => { el.classList.add('hidden'); addReport(b.dataset.k, p); });
+  clearTimeout(reportSheet.t); reportSheet.t = setTimeout(() => el.classList.add('hidden'), 15000);
 }
 $('#btnReport').onclick = () => reportSheet(null);
 
@@ -1224,25 +1289,57 @@ $('#btnTraffic').onclick = () => {
   toast(cfg.traffic ? '🚦 Tráfico en directo activado' : 'Tráfico ocultado');
 };
 $('#btnTraffic').classList.toggle('on', cfg.traffic && !!cfg.tomtom);
-$('#btnLayers').onclick = () => {
-  const t = (k, label, sub) => '<div class="set"><label>' + label + (sub ? '<small>' + sub + '</small>' : '') + '</label><input type="checkbox" data-k="' + k + '"' + (cfg[k] ? ' checked' : '') + '></div>';
-  openSheet('<div class="sTitle">🗺️ Qué ver en el mapa</div>' +
-    t('radars', '📷 Radares fijos y de tramo', radars.length + ' radares en España (OpenStreetMap)') +
-    t('semaforos', '🚦 Cámaras de semáforo') +
-    t('incid', '⚠️ Incidencias de la DGT', dgt.length + ' ahora mismo · se actualiza cada 3 min') +
-    (cfg.tomtom ? t('ttinc', '🚗 Atascos e incidencias de TomTom', ttInc.length + ' cerca de ti o de tu ruta · en directo') : '') +
-    t('reports', '🚓 Mis avisos', reports.length + ' activos') +
-    t('gas', '⛽ Gasolineras con precio', (fuel.length || 0) + ' gasolineras · se ve al acercar el mapa') +
-    '<div class="set"><label>Estilo del mapa</label><select id="stSel"><option value="auto">Automático (oscuro de noche)</option><option value="light">Claro</option>' +
-    '<option value="dark">Oscuro</option><option value="soft">Suave</option><option value="sat">Satélite España (IGN)</option><option value="satw">Satélite mundial</option></select></div>');
-  $('#stSel').value = cfg.style;
-  $('#stSel').onchange = e => { cfg.style = e.target.value; saveCfg(); applyStyle(true); };
-  document.querySelectorAll('#sheetBody input[type=checkbox]').forEach(i => i.onchange = () => {
-    cfg[i.dataset.k] = i.checked; saveCfg(); refreshPois();
-    if (i.dataset.k === 'ttinc' && cfg.ttinc) loadTT();
-    if (map.getLayer('gas')) map.setLayoutProperty('gas', 'visibility', cfg.gas ? 'visible' : 'none');
+$('#btnLayers').onclick = () => mapOptions();
+function mapOptions() {
+  const base = cfg.style === 'soft' ? 'soft' : (cfg.style === 'sat' || cfg.style === 'satw') ? 'sat' : 'std';
+  const mode = cfg.style === 'light' ? 'day' : cfg.style === 'dark' ? 'night' : 'auto';
+  const seg = (name, opts, cur) => '<div class="seg" data-seg="' + name + '">' + opts.map(([v, n]) => '<button data-v="' + v + '"' + (v === cur ? ' class="on"' : '') + '>' + n + '</button>').join('') + '</div>';
+  const tile = (k, ic, n) => '<button class="tile' + (cfg[k] ? ' on' : '') + '" data-t="' + k + '">' + IC[ic] + n + '</button>';
+  let h = '<div class="sTitle">Opciones del mapa</div>' +
+    '<div class="sec">Vista</div>' + seg('view', [['2d', '2D'], ['3d', '3D']], cfg.persp ? '3d' : '2d') +
+    '<div class="sec">Sonido</div>' + seg('sound', [['all', 'Voz'], ['alerts', 'Solo avisos'], ['off', 'Silencio']], cfg.sound) +
+    '<div class="sec">Mapa</div><div class="mapCards">' +
+    [['std', 'Estándar', 'linear-gradient(160deg,#e9e5dc 0 55%,#cfe3c4 55%)'], ['soft', 'Suave', 'linear-gradient(160deg,#f2f2f2 0 60%,#d9dde3 60%)'],
+      ['sat', 'Satélite', 'linear-gradient(160deg,#4a6b3a 0 45%,#7a6a4a 45% 60%,#3c5a2e 60%)']]
+      .map(([v, n, bg]) => '<button class="mCard' + (base === v ? ' on' : '') + '" data-base="' + v + '"><div class="pv" style="background:' + bg + '"></div><span>' + n + '</span></button>').join('') + '</div>' +
+    (base === 'std' ? seg('mode', [['auto', 'Auto'], ['day', 'Día'], ['night', 'Noche']], mode) : '') +
+    '<div class="rangeRow"><span data-ic="sun"></span><input type="range" min="0" max="2" step="1" id="darkRange" value="' + ({ normal: 0, mas: 1, mucho: 2 }[cfg.darkLvl] || 0) + '"><span data-ic="moon"></span><small class="muted" id="darkLbl"></small></div>' +
+    '<div class="sec">En el mapa</div><div class="tiles">' +
+    tile('traffic', 'traffic', 'Tráfico') + tile('b3d', 'building', 'Edificios 3D') + tile('radars', 'camera', 'Radares') +
+    tile('semaforos', 'traffic', 'Semáforos') + tile('incid', 'alert', 'DGT') + (cfg.tomtom ? tile('ttinc', 'jam', 'Atascos') : '') +
+    tile('gas', 'fuel', 'Gasolineras') + tile('zbeShow', 'leaf', 'ZBE') + tile('hazards', 'alert', 'Peligros') +
+    tile('lamps', 'bulb', 'Farolas') + tile('trees', 'tree', 'Árboles') + tile('wxfx', 'cloud', 'Tiempo') +
+    tile('shadows', 'shadow', 'Sombras') + tile('reports', 'flag', 'Mis avisos') + '</div>' +
+    '<button class="btn alt" id="moSet">' + '⚙️ Más ajustes' + '</button>';
+  openSheet(h);
+  paintIcons($('#sheetBody'));
+  const lbl = () => { const e = $('#darkLbl'); if (e) e.textContent = 'Brillo de noche: ' + ['oscuro', 'más claro', 'mucho más claro'][+$('#darkRange').value]; };
+  lbl();
+  document.querySelectorAll('#sheetBody .seg button').forEach(b => b.onclick = () => {
+    const g = b.parentNode.dataset.seg, v = b.dataset.v;
+    if (g === 'view') { cfg.persp = v === '3d'; saveCfg(); camZ = null; if (follow && me) moveCamera(); else map.easeTo({ pitch: cfg.persp ? 50 : 0 }); }
+    if (g === 'sound') setSound(v);
+    if (g === 'mode') { cfg.style = v === 'day' ? 'light' : v === 'night' ? 'dark' : 'auto'; saveCfg(); applyStyle(true); }
+    mapOptions();
   });
-};
+  document.querySelectorAll('#sheetBody [data-base]').forEach(b => b.onclick = () => {
+    const v = b.dataset.base;
+    cfg.style = v === 'soft' ? 'soft' : v === 'sat' ? (me && (me[0] < -9.5 || me[0] > 4.5 || me[1] < 35.8 || me[1] > 43.9) ? 'satw' : 'sat') : 'auto';
+    saveCfg(); applyStyle(true); mapOptions();
+  });
+  $('#darkRange').oninput = () => { cfg.darkLvl = ['normal', 'mas', 'mucho'][+$('#darkRange').value]; saveCfg(); lbl(); applyStyle(true); };
+  document.querySelectorAll('#sheetBody [data-t]').forEach(b => b.onclick = () => {
+    const k = b.dataset.t;
+    if (k === 'traffic') { closeSheet(); $('#btnTraffic').onclick(); return; }
+    cfg[k] = !cfg[k]; saveCfg();
+    if (['radars', 'semaforos', 'incid', 'ttinc', 'reports', 'hazards'].includes(k)) { refreshPois(); if (k === 'ttinc' && cfg.ttinc) loadTT(); }
+    if (k === 'gas' && map.getLayer('gas')) map.setLayoutProperty('gas', 'visibility', cfg.gas ? 'visible' : 'none');
+    if (k === 'zbeShow') ['zbeFill', 'zbeLine'].forEach(id => map.getLayer(id) && map.setLayoutProperty(id, 'visibility', cfg.zbeShow ? 'visible' : 'none'));
+    lookChanged(k);
+    b.classList.toggle('on', !!cfg[k]);
+  });
+  $('#moSet').onclick = settingsSheet;
+}
 
 /* ====================== Ajustes ====================== */
 /* ====================== Ajustes (menú por secciones) ====================== */
@@ -1258,20 +1355,37 @@ const SET_PAGES = {
   sync:     { i: '📲', n: 'Vincular dispositivos', d: 'Aparcamiento, ajustes y favoritos entre el móvil y el coche' },
   app:      { i: 'ℹ️', n: 'Sobre la app', d: 'Actualizaciones, radares, probar la voz' }
 };
+const SET_LOOK = { aspecto: ['layers', 'k-blue', 'mapa colores oscuro claro satelite 3d edificios arboles farolas tiempo lluvia sombras vehiculo icono coche zoom camara vista cenital'],
+  offline: ['cloud', 'k-blue', 'sin conexion descargar mapa zona cobertura'],
+  ruta: ['pin', 'k-teal', 'ruta rapida corta peajes autopistas voz sonido pitidos carriles'],
+  avisos: ['alert', 'k-red', 'limite velocidad cansancio curvas pasos a nivel escuelas peligros'],
+  trafico: ['traffic', 'k-amber', 'tomtom clave trafico atascos dgt incidencias'],
+  zbe: ['leaf', 'k-green', 'zona bajas emisiones etiqueta eco madrid'],
+  coche: ['fuel', 'k-red', 'combustible gasolina diesel gasolineras parking aparcamiento'],
+  sync: ['car', 'k-violet', 'vincular movil coche junsun aparcamiento sincronizar'],
+  app: ['gear', 'k-gray', 'actualizar version radares dash cam camara' ] };
 function settingsSheet() {
   setPage = null; backTo = null;
-  let h = '<div class="sTitle">⚙️ Ajustes</div>';
-  for (const k in SET_PAGES) {
-    const pg = SET_PAGES[k];
-    h += '<div class="row" data-pg="' + k + '"><div class="ri">' + pg.i + '</div><div class="rt"><div class="r1">' + pg.n + '</div><div class="r2">' + pg.d + '</div></div><div class="rr chev">›</div></div>';
-  }
-  h += '<div class="sec">Accesos</div>' +
-    '<div class="row" data-go="favs"><div class="ri">⭐</div><div class="rt"><div class="r1">Casa, Trabajo, Favoritos y rutas guardadas</div></div><div class="rr chev">›</div></div>' +
-    '<div class="row" data-go="stats"><div class="ri">📊</div><div class="rt"><div class="r1">Mis viajes y estadísticas</div></div><div class="rr chev">›</div></div>' +
-    '<div class="row" data-go="voice"><div class="ri">🎤</div><div class="rt"><div class="r1">Qué le puedo decir por voz</div></div><div class="rr chev">›</div></div>';
+  const row = (k, attr) => { const pg = SET_PAGES[k], L = SET_LOOK[k];
+    return '<div class="row" ' + attr + ' data-kw="' + esc((pg.n + ' ' + pg.d + ' ' + L[2]).toLowerCase()) + '"><div class="ri cir ' + L[1] + '">' + IC[L[0]] + '</div><div class="rt"><div class="r1">' + pg.n +
+      '</div><div class="r2">' + pg.d + '</div></div></div>'; };
+  let h = '<div class="sTitle">Ajustes</div><div class="setSearch">' + IC.search + '<input id="setQ" placeholder="Buscar ajustes" autocomplete="off"></div>' +
+    '<div class="sec">Mapa</div>' + row('aspecto', 'data-pg="aspecto"') + row('offline', 'data-pg="offline"') +
+    '<div class="sec">Conducción</div>' + ['ruta', 'avisos', 'trafico', 'zbe', 'coche'].map(k => row(k, 'data-pg="' + k + '"')).join('') +
+    '<div class="sec">Otros</div>' + row('sync', 'data-pg="sync"') + row('app', 'data-pg="app"') +
+    '<div class="sec">Accesos</div>' +
+    '<div class="row" data-go="favs" data-kw="casa trabajo favoritos rutas guardadas"><div class="ri cir k-amber">' + IC.star + '</div><div class="rt"><div class="r1">Casa, Trabajo y favoritos</div><div class="r2">También las rutas guardadas</div></div></div>' +
+    '<div class="row" data-go="stats" data-kw="viajes estadisticas kilometros"><div class="ri cir k-green">' + IC.chart + '</div><div class="rt"><div class="r1">Mis viajes</div><div class="r2">Kilómetros, tiempo y velocidad media</div></div></div>' +
+    '<div class="row" data-go="voice" data-kw="voz microfono ordenes"><div class="ri cir k-violet">' + IC.mic + '</div><div class="rt"><div class="r1">Qué le puedo decir por voz</div><div class="r2">Órdenes para el micrófono</div></div></div>';
   openSheet(h);
   document.querySelectorAll('#sheetBody [data-pg]').forEach(el => el.onclick = () => { if (el.dataset.pg === 'sync') { backTo = settingsSheet; syncSheet(); } else settingsPage(el.dataset.pg); });
   document.querySelectorAll('#sheetBody [data-go]').forEach(el => el.onclick = () => { backTo = settingsSheet; ({ favs: favSheet, stats: statsSheet, voice: voiceHelp })[el.dataset.go](); });
+  $('#setQ').oninput = e => {
+    const q = noAcc(e.target.value);
+    document.querySelectorAll('#sheetBody .row[data-kw]').forEach(r => r.style.display = !q || noAcc(r.dataset.kw).includes(q) ? '' : 'none');
+    document.querySelectorAll('#sheetBody .sec').forEach(sec => { let n = sec.nextElementSibling, any = false;
+      while (n && !n.classList.contains('sec')) { if (n.style.display !== 'none') any = true; n = n.nextElementSibling; } sec.style.display = any ? '' : 'none'; });
+  };
 }
 function settingsPage(k) {
   setPage = k; backTo = null;
@@ -2000,7 +2114,7 @@ function applyRemoteState(parts) {
   ['zbeFill', 'zbeLine'].forEach(id => map && map.getLayer(id) && map.setLayoutProperty(id, 'visibility', cfg.zbeShow ? 'visible' : 'none'));
   ['b3d', 'trees', 'lamps'].forEach(k => lookChanged(k));
   if (cfg.tomtom && cfg.tomtom !== oldKey) loadTT();
-  $('#btnSound').textContent = (SOUND[cfg.sound] || SOUND.all).i; updateLight();
+  soundIcon(); updateLight();
   toast('⚙️ Ajustes y favoritos actualizados desde el otro dispositivo', 4500);
 }
 
@@ -2201,7 +2315,7 @@ function goToParking(p) {
   goTo({ name: p.name, sub: 'Aparcamiento cerca de ' + (finalDest ? finalDest.name : 'tu destino'), lon: p.lon, lat: p.lat }, true).then(() => { if (preview && routes.length) { sheetOnClose = null; closeSheet(); startNav(); } });
 }
 function parkListSheet(fromPreview) {
-  let h = '<div class="sTitle">🅿️ Aparcamientos cerca del destino</div>';
+  let h = '<div class="sTitle">🅿️ Aparcamientos cerca' + (parkingsFor && parkingsFor.name === 'Aquí' ? ' de ti' : ' del destino') + '</div>';
   if (!parkings.length) h += '<div class="muted">No hay aparcamientos apuntados en OpenStreetMap cerca de este destino.</div>';
   parkings.forEach((p, i) => {
     h += '<div class="row" data-p="' + i + '"><div class="ri">🅿️</div><div class="rt"><div class="r1">' + esc(p.name) + '</div><div class="r2">' +
@@ -2272,12 +2386,12 @@ function statsSheet() {
 let voiceOn = false;
 $('#btnMic').onclick = () => {
   if (!N || !N.listen) { toast('La voz solo funciona en la app instalada'); return; }
-  voiceOn = true; $('#btnMic').classList.add('on');
+  voiceOn = true; $('#btnMic').classList.add('on'); $('#btnMicNav').classList.add('on');
   $('#vbTxt').textContent = 'Te escucho…'; $('#voiceBox').classList.remove('hidden');
   N.listen();
 };
 function voiceDone(msg, ms) {
-  voiceOn = false; $('#btnMic').classList.remove('on');
+  voiceOn = false; $('#btnMic').classList.remove('on'); $('#btnMicNav').classList.remove('on');
   if (msg) { $('#vbTxt').textContent = msg; setTimeout(() => $('#voiceBox').classList.add('hidden'), ms || 2200); }
   else $('#voiceBox').classList.add('hidden');
 }
@@ -2541,10 +2655,11 @@ const SOUND = { all: { i: '🔊', n: 'Voz y avisos', d: 'Te guía por voz y te a
   off: { i: '🔇', n: 'Sin sonido', d: 'Ni voz ni pitidos' } };
 function setSound(m) {
   cfg.sound = m; if (m !== 'off') cfg.voice = true; saveCfg();
-  $('#btnSound').textContent = SOUND[m].i;
+  soundIcon();
   if (m === 'off' && N) N.stopSpeak();
 }
-$('#btnSound').textContent = (SOUND[cfg.sound] || SOUND.all).i;
+function soundIcon() { const b = $('#btnSound'); b.innerHTML = IC[{ all: 'vol', alerts: 'bell', off: 'mute' }[cfg.sound] || 'vol']; }
+soundIcon();
 $('#btnSound').onclick = () => {
   const next = { all: 'alerts', alerts: 'off', off: 'all' }[cfg.sound] || 'alerts';
   setSound(next);
@@ -2691,7 +2806,8 @@ let media = {}, mediaT = null;
 window.onMedia = j => {
   try { media = JSON.parse(j); } catch (e) { return; }
   const b = $('#btnMedia');
-  if (media.pkg && media.icon) b.innerHTML = '<img src="' + media.icon + '" alt="">'; else b.textContent = '🎵';
+  if (media.pkg && media.icon) b.innerHTML = '<img src="' + media.icon + '" alt="">'; else b.innerHTML = IC.music;
+  b.classList.toggle('hidden', !(media.pkg || !media.allowed));
   b.classList.toggle('playing', !!media.playing);
   if (!$('#mediaCard').classList.contains('hidden')) renderMediaCard();
 };
@@ -2731,6 +2847,40 @@ function mediaPermSheet() {
     '<button class="btn" id="mpOpen">🔓 Abrir el permiso</button><button class="btn alt" id="mpApp">⚙️ Abrir la ficha de Pro Maps</button>');
   $('#mpOpen').onclick = () => { closeSheet(); N.mediaPermission(); };
   $('#mpApp').onclick = () => { closeSheet(); N.appDetails(); };
+}
+
+
+/* ====================== Nuevo estilo: brújula, zoom, panel inferior ====================== */
+let zoomAdj = 0;
+$('#btnNorth').onclick = () => {
+  cfg.northUp = !cfg.northUp; saveCfg();
+  $('#btnNorth').classList.toggle('lock', cfg.northUp);
+  toast(cfg.northUp ? '🧭 Norte siempre arriba' : '🧭 El mapa gira con tu dirección');
+  if (follow && me) moveCamera(); else map.easeTo({ bearing: 0 });
+};
+$('#btnNorth').classList.toggle('lock', !!cfg.northUp);
+function updateNorth() { const n = document.getElementById('north'); if (n && map) n.style.transform = 'rotate(' + (-map.getBearing()) + 'deg)'; }
+$('#btnZoomIn').onclick = () => { if (follow && me) { zoomAdj = Math.min(3, zoomAdj + 1); camZ = null; moveCamera(); } else map.zoomIn(); };
+$('#btnZoomOut').onclick = () => { if (follow && me) { zoomAdj = Math.max(-4, zoomAdj - 1); camZ = null; moveCamera(); } else map.zoomOut(); };
+$('#btnMicNav').onclick = () => $('#btnMic').onclick();
+$('#btnSetNav').onclick = () => settingsSheet();
+$('#sheetX').onclick = () => closeSheet();
+$('#qFood').onclick = () => { $('#q').value = 'Restaurante'; showSearch('Restaurante'); };
+$('#qParkNear').onclick = async () => {
+  const c = me || map.getCenter().toArray();
+  toast('🅿️ Buscando aparcamientos cerca…', 2500);
+  parkingsFor = null; await loadParkings({ name: 'Aquí', lon: c[0], lat: c[1] });
+  parkListSheet(false);
+};
+/** Tarjetas de Casa, Trabajo y favoritos del panel inferior */
+function updateHome() {
+  const sub = f => !f ? 'Añadir' : !me ? (f.sub || '') : (dist(me, [f.lon, f.lat]) < 150 ? 'Está aquí' : 'A ' + fmtDist(dist(me, [f.lon, f.lat])));
+  $('#hCasa').textContent = sub(favs.casa);
+  $('#hTrabajo').textContent = sub(favs.trabajo);
+  const box = $('#hFavs');
+  box.innerHTML = favList.slice(0, 4).map((f, i) => '<button class="hCard" data-hf="' + i + '"><span class="hIco fav">' + IC.star + '</span><span class="hTxt"><b>' + esc(f.name) +
+    '</b><small>' + esc(sub(f)) + '</small></span></button>').join('');
+  box.querySelectorAll('[data-hf]').forEach(b => b.onclick = () => goTo(favList[+b.dataset.hf]));
 }
 
 /* ====================== Rutas alternativas durante el viaje ====================== */
@@ -2874,16 +3024,16 @@ function startPick(k) {
   pickFor = k;
   $('#q').value = '';
   showSearch('');
-  if (navigating) { $('#searchBar').classList.remove('hidden'); }
+  if (navigating) { $('#searchBar').classList.remove('hidden'); document.body.classList.add('picking'); }
   setTimeout(() => $('#q').focus(), 150);
 }
 function pickCancel() {
   pickFor = null;
-  if (navigating) $('#searchBar').classList.add('hidden');
+  if (navigating) $('#searchBar').classList.add('hidden'); document.body.classList.remove('picking');
   if (preview && routes.length) setTimeout(routeSheet, 50);
 }
 function finishPick(k, d) {
-  if (navigating) $('#searchBar').classList.add('hidden');
+  if (navigating) $('#searchBar').classList.add('hidden'); document.body.classList.remove('picking');
   const place = { name: d.name, sub: d.sub || '', lon: d.lon, lat: d.lat };
   if (k === 'casa') setFav('casa', Object.assign({}, place, { name: 'Casa', sub: d.name + (d.sub ? ', ' + d.sub : '') }));
   else if (k === 'trabajo') setFav('trabajo', Object.assign({}, place, { name: 'Trabajo', sub: d.name + (d.sub ? ', ' + d.sub : '') }));
@@ -3186,6 +3336,7 @@ window.onShared = onShared;
 window.onBack = () => {
   if (!$('#camView').classList.contains('hidden')) { $('#camClose').onclick(); return true; }
   if (!$('#mediaCard').classList.contains('hidden')) { hideMediaCard(); return true; }
+  if (!$('#reportPop').classList.contains('hidden')) { $('#reportPop').classList.add('hidden'); return true; }
   if (altPromptFor) { declineAlt(false); return true; }
   if (!$('#notice').classList.contains('hidden')) { hideNotice(); return true; }
   if (sheetOpen() && document.getElementById('sheetBack')) { document.getElementById('sheetBack').click(); return true; }

@@ -1,1 +1,7 @@
-• Los edificios vuelven a su color de siempre a cualquier hora (ya no se ven marrones al amanecer ni al atardecer). Las sombras siguen cambiando según la hora.
+Nuevo diseño de menús:
+• Buscador redondeado con micrófono dentro y botón de ajustes al lado.
+• Panel inferior con Casa, Trabajo y favoritos (te dice a qué distancia están) y botones de gasolineras, restaurantes, parkings y viajes.
+• Botones de la derecha agrupados: brújula (toca para norte arriba), sonido, avisar, opciones del mapa y zoom + / −.
+• «Opciones del mapa» nuevo: vista 2D/3D, sonido, tipo de mapa, día/noche, brillo y todo lo que se ve en el mapa en botones.
+• «Avisar aquí» en una tarjeta junto a la bandera.
+• Velocímetro redondo con arco y Ajustes con buscador e iconos.

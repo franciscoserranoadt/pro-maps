@@ -13,21 +13,32 @@
 <!-- Pantalla de carga / error -->
 <div id="splash"><div class="logo">▲</div><div class="brand">Pro Maps</div><div id="splashMsg">Cargando mapa…</div></div>
 
-<!-- Barra de búsqueda (modo libre) -->
-<div id="searchBar" class="card">
-  <span class="ico">🔍</span>
-  <input id="q" type="search" placeholder="¿A dónde vamos?" autocomplete="off">
-  <button id="btnSettings" class="iconbtn" title="Ajustes">⚙️</button>
+<!-- Barra superior: buscador en píldora con micrófono, y ajustes -->
+<div id="topBar">
+  <div id="searchBar">
+    <span class="ico" data-ic="search"></span>
+    <input id="q" type="search" placeholder="¿A dónde vamos?" autocomplete="off">
+    <button id="btnMic" class="micBtn" title="Órdenes por voz" data-ic="mic"></button>
+  </div>
+  <button id="btnSettings" class="circ" title="Ajustes" data-ic="gear"></button>
 </div>
 
-<!-- Accesos rápidos -->
-<div id="quick">
-  <button class="qchip" id="qCasa">🏠 Casa</button>
-  <button class="qchip" id="qTrabajo">💼 Trabajo</button>
-  <button class="qchip" id="qFav">⭐ Favoritos</button>
-  <button class="qchip hidden" id="qPark">🅿️ Mi coche</button>
-  <button class="qchip" id="qGas">⛽ Gasolineras</button>
-  <button class="qchip" id="qStats">📊 Viajes</button>
+<!-- Panel inferior (sin ruta): Casa, Trabajo, favoritos y accesos -->
+<div id="home">
+  <div class="grab"></div>
+  <div id="homeCards">
+    <button class="hCard" id="qCasa"><span class="hIco home" data-ic="home"></span><span class="hTxt"><b>Casa</b><small id="hCasa">Añadir</small></span></button>
+    <button class="hCard" id="qTrabajo"><span class="hIco work" data-ic="work"></span><span class="hTxt"><b>Trabajo</b><small id="hTrabajo">Añadir</small></span></button>
+    <span id="hFavs"></span>
+    <button class="hCard add" id="qFav" title="Favoritos"><span class="hIco plus" data-ic="star"></span></button>
+  </div>
+  <div id="homeCats">
+    <button class="cat" id="qGas" title="Gasolineras"><span data-ic="fuel" class="c-red"></span></button>
+    <button class="cat" id="qFood" title="Restaurantes"><span data-ic="food" class="c-amber"></span></button>
+    <button class="cat" id="qParkNear" title="Aparcamientos"><span class="pTxt">P</span></button>
+    <button class="cat hidden" id="qPark" title="Mi coche"><span data-ic="car" class="c-blue"></span></button>
+    <button class="cat" id="qStats" title="Mis viajes"><span data-ic="chart" class="c-green"></span></button>
+  </div>
 </div>
 
 <div id="side">
@@ -88,30 +99,37 @@
 </div>
 
 <!-- Velocímetro -->
-<div id="speed"><div id="spdVal">0</div><div class="spdU">km/h</div></div>
+<div id="speed"><svg viewBox="0 0 100 100"><path class="trk" d="M22 78 A38 38 0 1 1 78 78"/><path id="spdArc" class="arc" d="M22 78 A38 38 0 1 1 78 78"/></svg><div id="spdVal">0</div><div class="spdU">km/h</div></div>
 <div id="limit" class="hidden">50</div>
 <div id="wx" class="hidden"></div>
 
-<!-- Botones laterales -->
-<div id="fabs">
-  <button id="btnMore" class="fab" title="Más botones">⋯</button>
-  <div id="fabMore">
-    <button id="btnSet2" class="fab hidden" title="Ajustes">⚙️</button>
-    <button id="btnGas" class="fab hidden" title="Gasolineras">⛽</button>
-    <button id="btnStyle" class="fab" title="Tipo de mapa">🗺️</button>
-    <button id="btnTraffic" class="fab" title="Tráfico">🚦</button>
-    <button id="btnLayers" class="fab" title="Qué ver en el mapa">🧩</button>
+<!-- Botones de la derecha en «píldoras» -->
+<div id="rail">
+  <button id="btnMedia" class="circ media hidden" title="Música" data-ic="music"></button>
+  <div class="grp">
+    <button id="btnNorth" title="Norte arriba"><span id="north"><i></i>N</span></button>
+    <button id="btnSound" title="Sonido" data-ic="vol"></button>
+    <button id="btnMicNav" class="navOnly" title="Órdenes por voz" data-ic="mic"></button>
+    <button id="btnReport" class="flag" title="Avisar" data-ic="flag"></button>
+    <button id="btnLayers" title="Opciones del mapa" data-ic="layers"></button>
+    <button id="btnSetNav" class="navOnly" title="Ajustes" data-ic="gear"></button>
   </div>
-  <button id="btnMedia" class="fab media" title="Música">🎵</button>
-  <button id="btnMic" class="fab" title="Órdenes por voz">🎤</button>
-  <button id="btnSound" class="fab" title="Sonido">🔊</button>
-  <button id="btnReport" class="fab warn" title="Avisar">⚠️</button>
+  <div class="grp">
+    <button id="btnZoomIn" title="Acercar" data-ic="plus"></button>
+    <button id="btnZoomOut" title="Alejar" data-ic="minus"></button>
+  </div>
 </div>
-<button id="btnRecenter" class="pill hidden">◎ Recentrar</button>
+<!-- (botones antiguos que usa el código; no se ven) -->
+<div id="legacy">
+  <button id="btnMore"></button><div id="fabMore"></div>
+  <button id="btnSet2"></button><button id="btnGas"></button><button id="btnStyle"></button><button id="btnTraffic"></button>
+</div>
+<div id="reportPop" class="hidden"></div>
+<button id="btnRecenter" class="pill hidden"><span data-ic="target"></span> Centrar</button>
 
 <!-- Hoja inferior genérica -->
 <div id="sheetBg" class="hidden"></div>
-<div id="sheet" class="hidden"><div class="grab"></div><div id="sheetBody"></div></div>
+<div id="sheet" class="hidden"><div class="grab"></div><button id="sheetX" class="circ sm" data-ic="close" title="Cerrar"></button><div id="sheetBody"></div></div>
 
 <div id="toast" class="hidden"></div>
 <div id="mediaCard" class="hidden">
