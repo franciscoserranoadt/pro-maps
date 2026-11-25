@@ -349,6 +349,7 @@ async function boot() {
   });
   map.on('mouseenter', 'pois', () => map.getCanvas().style.cursor = 'pointer');
   map.on('click', e => {
+    hideMediaCard();
     const own = ['pois', 'gas', 'parkings', 'routeAltHit', 'haz'].filter(id => map.getLayer(id));
     if (own.length && map.queryRenderedFeatures(e.point, { layers: own }).length) return; // ya lo atiende su propia capa
     const box = [[e.point.x - 14, e.point.y - 14], [e.point.x + 14, e.point.y + 14]];
@@ -383,6 +384,7 @@ async function boot() {
   restorePark(); tripRestore();
   setTimeout(syncPoll, 3000); setInterval(syncPoll, 120000);
   setTimeout(pushState, 9000);
+  setTimeout(() => { if (N && N.mediaState) window.onMedia(N.mediaState()); }, 2000);
   addEventListener('resize', () => map && setTimeout(() => map.resize(), 100));
   setInterval(() => { const every = navigating ? 180000 : 300000; if (Date.now() - ttAt > every) loadTT(); }, 30000); setInterval(() => loadFuel(false), 60 * 60000);
   setInterval(() => { cleanReports(); refreshPois(); applyStyle(false); updateLight(); }, 5 * 60000);
@@ -1380,6 +1382,8 @@ function settingsPage(k) {
   });
 }
 $('#btnSettings').onclick = settingsSheet;
+$('#btnMore').onclick = () => document.body.classList.toggle('more');
+document.querySelectorAll('#fabMore .fab').forEach(b => b.addEventListener('click', () => document.body.classList.remove('more')));
 $('#btnSet2').onclick = settingsSheet;
 
 
@@ -2315,6 +2319,11 @@ window.onVoice = async text => {
   }
   if (/(parking|aparcamiento)/.test(t)) { if (dest) { await loadParkings(dest); parkListSheet(false); say(parkings.length ? 'Hay ' + parkings.length + ' aparcamientos cerca del destino' : 'No encuentro aparcamientos cerca'); } else say('Primero elige un destino'); return; }
   if (/(trafico)/.test(t)) { $('#btnTraffic').onclick(); return; }
+  if (/(siguiente cancion|pasa (la )?cancion|siguiente tema|cambia (la )?cancion)/.test(t)) { if (N) N.mediaCmd('next'); return; }
+  if (/(cancion anterior|tema anterior)/.test(t)) { if (N) N.mediaCmd('prev'); return; }
+  if (/(pausa|para la musica|deten la musica)/.test(t)) { if (N) N.mediaCmd('pause'); return; }
+  if (/(pon (la )?musica|reanuda|sigue la musica|play)/.test(t)) { if (N) N.mediaCmd('play'); return; }
+  if (/(que (cancion|suena|esta sonando))/.test(t)) { try { const m = JSON.parse(N.mediaState()); return say(m.title ? 'Suena ' + m.title + (m.artist ? ', de ' + m.artist : '') : 'No suena nada'); } catch (e) { return; } }
   // Ir a casa / trabajo / favorito / cualquier sitio
   const m = t.match(/^(?:llevame|lleveme|ir|ve|vamos|navega|navegar|ruta|como (?:llego|voy)|quiero ir|busca|buscar)(?: (?:a|al|a la|hasta|hacia|para|por))? (.+)$/);
   if (m) {
@@ -2343,7 +2352,7 @@ function voiceHelp() {
   openSheet('<div class="sTitle">🎤 Qué le puedo decir</div><div class="sSub">Toca el botón morado 🎤 y habla:</div>' +
     ['«Llévame a casa» / «Vamos al trabajo»', '«Llévame a Calle Mayor 5, Alcorcón» / «Ir a Mercadona»', '«Vamos» (para empezar la ruta que estás viendo)',
       '«Avisa de un radar» / «Hay un control» / «Avisa de un accidente» / «Hay atasco»', '«¿A qué hora llego?» / «¿Cuánto falta?»', '«Gasolinera más barata»',
-      '«Busca parking»', '«Comparte mi llegada»', '«¿Dónde está mi coche?» / «He aparcado»', '«Cancela la ruta»', '«Silencio» / «Activa la voz»', '«Tráfico»']
+      '«Busca parking»', '«Comparte mi llegada»', '«Siguiente canción» / «Canción anterior» / «Pausa» / «Pon la música» / «¿Qué suena?»', '«¿Dónde está mi coche?» / «He aparcado»', '«Cancela la ruta»', '«Silencio» / «Activa la voz»', '«Tráfico»']
       .map(x => '<div class="row"><div class="rt"><div class="r1" style="white-space:normal">' + x + '</div></div></div>').join('') +
     '<div class="muted">Usa el reconocimiento de voz de Google del móvil o de la pantalla del coche, y necesita internet.</div>');
 }
@@ -2674,6 +2683,54 @@ async function camOpen(dev) {
   }
 }
 $('#camClose').onclick = () => { if (camStream) camStream.getTracks().forEach(t => t.stop()); camStream = null; $('#camView').classList.add('hidden'); };
+
+
+/* ====================== Música: la app que está sonando (Spotify, Deezer, YouTube Music, radios…) ====================== */
+let media = {}, mediaT = null;
+window.onMedia = j => {
+  try { media = JSON.parse(j); } catch (e) { return; }
+  const b = $('#btnMedia');
+  if (media.pkg && media.icon) b.innerHTML = '<img src="' + media.icon + '" alt="">'; else b.textContent = '🎵';
+  b.classList.toggle('playing', !!media.playing);
+  if (!$('#mediaCard').classList.contains('hidden')) renderMediaCard();
+};
+function renderMediaCard() {
+  $('#mcTitle').textContent = media.title || (media.playing ? 'Sonando' : 'En pausa');
+  $('#mcArtist').textContent = media.artist || media.album || '';
+  $('#mcApp').textContent = (media.app || '') + (media.playing ? ' · sonando' : ' · en pausa');
+  const art = $('#mcArt');
+  if (media.art) { art.src = media.art; art.style.visibility = 'visible'; } else if (media.icon) { art.src = media.icon; art.style.visibility = 'visible'; } else art.style.visibility = 'hidden';
+  $('#mcPlay').textContent = media.playing ? '⏸' : '▶';
+}
+function hideMediaCard() { clearTimeout(mediaT); $('#mediaCard').classList.add('hidden'); }
+function showMediaCard() {
+  renderMediaCard(); $('#mediaCard').classList.remove('hidden');
+  clearTimeout(mediaT); mediaT = setTimeout(hideMediaCard, 10000);
+}
+$('#btnMedia').onclick = () => {
+  if (!N || !N.mediaState) { toast('Solo funciona en la app instalada'); return; }
+  if (!$('#mediaCard').classList.contains('hidden')) return hideMediaCard();
+  try { media = JSON.parse(N.mediaState()); } catch (e) { }
+  if (!media.allowed) return mediaPermSheet();
+  if (!media.pkg) { toast('🎵 No hay ninguna app de música abierta. Pon algo en Spotify, Deezer, YouTube Music o la radio.', 4500); return; }
+  window.onMedia(JSON.stringify(media)); showMediaCard();
+};
+document.querySelectorAll('#mediaCard [data-mc]').forEach(b => b.onclick = ev => {
+  ev.stopPropagation(); if (N) N.mediaCmd(b.dataset.mc);
+  clearTimeout(mediaT); mediaT = setTimeout(hideMediaCard, 10000);
+});
+$('#mcArt').onclick = () => { if (N && media.pkg) N.openApp(media.pkg); };
+function mediaPermSheet() {
+  openSheet('<div class="sTitle">🎵 Controlar la música</div><div class="sSub">Para ver qué suena en Spotify, Deezer, YouTube Music o la radio y poder pasar de canción, ' +
+    'Android pide activar una vez el «acceso a notificaciones» para Pro Maps. Pro Maps no lee ni guarda tus notificaciones: solo lo usa para la música.</div>' +
+    '<div class="sec">Pasos</div>' +
+    '<div class="row"><div class="ri">1</div><div class="rt"><div class="r1" style="white-space:normal">Toca «Abrir el permiso», busca <b>Pro Maps (control de música)</b> y actívalo.</div></div></div>' +
+    '<div class="row"><div class="ri">2</div><div class="rt"><div class="r1" style="white-space:normal">Si sale en gris o dice «Ajuste restringido»: toca «Abrir la ficha de Pro Maps», luego ⋮ (arriba a la derecha) → <b>Permitir ajustes restringidos</b>, y vuelve al paso 1.</div></div></div>' +
+    '<div class="row"><div class="ri">3</div><div class="rt"><div class="r1" style="white-space:normal">Vuelve a Pro Maps: el botón 🎵 mostrará el icono de la app que esté sonando.</div></div></div>' +
+    '<button class="btn" id="mpOpen">🔓 Abrir el permiso</button><button class="btn alt" id="mpApp">⚙️ Abrir la ficha de Pro Maps</button>');
+  $('#mpOpen').onclick = () => { closeSheet(); N.mediaPermission(); };
+  $('#mpApp').onclick = () => { closeSheet(); N.appDetails(); };
+}
 
 /* ====================== Rutas alternativas durante el viaje ====================== */
 /** Calcula dónde se separa «alt» de la ruta activa. Devuelve null si es casi igual. */
@@ -3127,6 +3184,7 @@ window.onShared = onShared;
 /* ====================== Botón atrás de Android ====================== */
 window.onBack = () => {
   if (!$('#camView').classList.contains('hidden')) { $('#camClose').onclick(); return true; }
+  if (!$('#mediaCard').classList.contains('hidden')) { hideMediaCard(); return true; }
   if (altPromptFor) { declineAlt(false); return true; }
   if (!$('#notice').classList.contains('hidden')) { hideNotice(); return true; }
   if (sheetOpen() && document.getElementById('sheetBack')) { document.getElementById('sheetBack').click(); return true; }

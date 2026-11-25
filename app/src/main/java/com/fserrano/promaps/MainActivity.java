@@ -56,6 +56,17 @@ public class MainActivity extends Activity implements LocationListener {
     private final ExecutorService pool = Executors.newFixedThreadPool(4);
     private String pendingShare = null;
     private android.webkit.PermissionRequest pendingCam = null;
+    // ---- Música ----
+    private android.media.session.MediaSessionManager msm;
+    private android.media.session.MediaController mediaCtl;
+    private final java.util.Map<String, String> iconCache = new java.util.HashMap<>();
+    private String lastArtKey = "", lastArt = "";
+    private final android.media.session.MediaController.Callback mediaCb = new android.media.session.MediaController.Callback() {
+        @Override public void onMetadataChanged(android.media.MediaMetadata m) { pushMedia(); }
+        @Override public void onPlaybackStateChanged(android.media.session.PlaybackState st) { pickController(); pushMedia(); }
+        @Override public void onSessionDestroyed() { pickController(); pushMedia(); }
+    };
+    private final android.media.session.MediaSessionManager.OnActiveSessionsChangedListener sessionsCb = list -> { pickController(); pushMedia(); };
     private TileCache tiles;
     private android.speech.SpeechRecognizer recognizer;
     private final ExecutorService prefetchPool = Executors.newFixedThreadPool(4);
@@ -352,6 +363,57 @@ public class MainActivity extends Activity implements LocationListener {
         }
 
         @JavascriptInterface
+        public String mediaState() { return mediaJson(); }
+
+        @JavascriptInterface
+        public void mediaCmd(String cmd) {
+            handler.post(() -> {
+                try {
+                    if (mediaCtl == null) return;
+                    android.media.session.MediaController.TransportControls t = mediaCtl.getTransportControls();
+                    switch (cmd) {
+                        case "play": t.play(); break;
+                        case "pause": t.pause(); break;
+                        case "toggle": {
+                            android.media.session.PlaybackState st = mediaCtl.getPlaybackState();
+                            if (st != null && st.getState() == android.media.session.PlaybackState.STATE_PLAYING) t.pause(); else t.play();
+                            break;
+                        }
+                        case "next": t.skipToNext(); break;
+                        case "prev": t.skipToPrevious(); break;
+                        default: break;
+                    }
+                } catch (Exception ignored) { }
+            });
+        }
+
+        /** Abre la pantalla de Android para dar el permiso de «acceso a notificaciones» */
+        @JavascriptInterface
+        public void mediaPermission() {
+            handler.post(() -> {
+                try { startActivity(new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")); }
+                catch (Exception e) {
+                    try { startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))); } catch (Exception ignored) { }
+                }
+            });
+        }
+
+        /** Abre la ficha de Pro Maps en Ajustes de Android (para «permitir ajustes restringidos») */
+        @JavascriptInterface
+        public void appDetails() {
+            handler.post(() -> {
+                try { startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))); } catch (Exception ignored) { }
+            });
+        }
+
+        @JavascriptInterface
+        public void openApp(String pkg) {
+            handler.post(() -> {
+                try { Intent i = getPackageManager().getLaunchIntentForPackage(pkg); if (i != null) startActivity(i); } catch (Exception ignored) { }
+            });
+        }
+
+        @JavascriptInterface
         public String cacheSize() { return String.valueOf(tiles.size()); }
 
         @JavascriptInterface
@@ -474,6 +536,110 @@ public class MainActivity extends Activity implements LocationListener {
         }
     }
 
+    // ---------- Música (Spotify, Deezer, YouTube Music, radios…) ----------
+
+    private boolean mediaAllowed() {
+        String flat = android.provider.Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners");
+        return flat != null && flat.contains(getPackageName());
+    }
+
+    private void startMedia() {
+        if (!mediaAllowed()) { pushMedia(); return; }
+        try {
+            if (msm == null) {
+                msm = (android.media.session.MediaSessionManager) getSystemService(Context.MEDIA_SESSION_SERVICE);
+                msm.addOnActiveSessionsChangedListener(sessionsCb, new android.content.ComponentName(this, MediaListener.class), handler);
+            }
+            pickController();
+        } catch (Exception e) { android.util.Log.d("ProMaps", "media " + e); }
+        pushMedia();
+    }
+
+    /** Elige la app que está sonando (o la última que sonó) */
+    private void pickController() {
+        try {
+            if (msm == null) return;
+            java.util.List<android.media.session.MediaController> l = msm.getActiveSessions(new android.content.ComponentName(this, MediaListener.class));
+            android.media.session.MediaController best = null;
+            for (android.media.session.MediaController c : l) {
+                if (c.getPackageName().equals(getPackageName())) continue;
+                android.media.session.PlaybackState st = c.getPlaybackState();
+                if (st != null && st.getState() == android.media.session.PlaybackState.STATE_PLAYING) { best = c; break; }
+                if (best == null) best = c;
+            }
+            if (mediaCtl != null && (best == null || !mediaCtl.getSessionToken().equals(best.getSessionToken()))) mediaCtl.unregisterCallback(mediaCb);
+            if (best != null && (mediaCtl == null || !mediaCtl.getSessionToken().equals(best.getSessionToken()))) best.registerCallback(mediaCb, handler);
+            mediaCtl = best;
+        } catch (Exception e) { android.util.Log.d("ProMaps", "media pick " + e); }
+    }
+
+    private static String bitmapB64(android.graphics.Bitmap b, int max) {
+        try {
+            int w = b.getWidth(), h = b.getHeight();
+            float k = Math.min(1f, (float) max / Math.max(w, h));
+            android.graphics.Bitmap s = k < 1 ? android.graphics.Bitmap.createScaledBitmap(b, Math.max(1, (int) (w * k)), Math.max(1, (int) (h * k)), true) : b;
+            java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream();
+            s.compress(android.graphics.Bitmap.CompressFormat.PNG, 90, o);
+            return "data:image/png;base64," + android.util.Base64.encodeToString(o.toByteArray(), android.util.Base64.NO_WRAP);
+        } catch (Exception e) { return ""; }
+    }
+
+    private String appIcon(String pkg) {
+        if (iconCache.containsKey(pkg)) return iconCache.get(pkg);
+        String r = "";
+        try {
+            android.graphics.drawable.Drawable d = getPackageManager().getApplicationIcon(pkg);
+            android.graphics.Bitmap b = android.graphics.Bitmap.createBitmap(96, 96, android.graphics.Bitmap.Config.ARGB_8888);
+            android.graphics.Canvas cv = new android.graphics.Canvas(b);
+            d.setBounds(0, 0, 96, 96); d.draw(cv);
+            r = bitmapB64(b, 96);
+        } catch (Exception ignored) { }
+        iconCache.put(pkg, r);
+        return r;
+    }
+
+    private String mediaJson() {
+        JSONObject o = new JSONObject();
+        try {
+            o.put("allowed", mediaAllowed());
+            android.media.session.MediaController c = mediaCtl;
+            if (c == null) return o.toString();
+            String pkg = c.getPackageName();
+            o.put("pkg", pkg);
+            try { o.put("app", getPackageManager().getApplicationLabel(getPackageManager().getApplicationInfo(pkg, 0)).toString()); } catch (Exception e) { o.put("app", pkg); }
+            o.put("icon", appIcon(pkg));
+            android.media.session.PlaybackState st = c.getPlaybackState();
+            o.put("playing", st != null && st.getState() == android.media.session.PlaybackState.STATE_PLAYING);
+            android.media.MediaMetadata m = c.getMetadata();
+            if (m != null) {
+                String title = m.getString(android.media.MediaMetadata.METADATA_KEY_TITLE);
+                if (title == null) title = m.getString(android.media.MediaMetadata.METADATA_KEY_DISPLAY_TITLE);
+                String artist = m.getString(android.media.MediaMetadata.METADATA_KEY_ARTIST);
+                if (artist == null) artist = m.getString(android.media.MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE);
+                if (artist == null) artist = m.getString(android.media.MediaMetadata.METADATA_KEY_ALBUM_ARTIST);
+                o.put("title", title == null ? "" : title);
+                o.put("artist", artist == null ? "" : artist);
+                String album = m.getString(android.media.MediaMetadata.METADATA_KEY_ALBUM);
+                o.put("album", album == null ? "" : album);
+                String key = pkg + "|" + title + "|" + artist;
+                if (!key.equals(lastArtKey)) {
+                    lastArtKey = key; lastArt = "";
+                    android.graphics.Bitmap art = m.getBitmap(android.media.MediaMetadata.METADATA_KEY_ALBUM_ART);
+                    if (art == null) art = m.getBitmap(android.media.MediaMetadata.METADATA_KEY_ART);
+                    if (art == null) art = m.getBitmap(android.media.MediaMetadata.METADATA_KEY_DISPLAY_ICON);
+                    if (art != null) lastArt = bitmapB64(art, 160);
+                }
+                o.put("art", lastArt);
+            }
+        } catch (Exception e) { android.util.Log.d("ProMaps", "media json " + e); }
+        return o.toString();
+    }
+
+    private void pushMedia() {
+        final String js = "window.onMedia&&window.onMedia(" + JSONObject.quote(mediaJson()) + ")";
+        handler.post(() -> { if (web != null) web.evaluateJavascript(js, null); });
+    }
+
     // ---------- Órdenes por voz ----------
 
     private void voiceJs(String fn, String arg) {
@@ -492,6 +658,7 @@ public class MainActivity extends Activity implements LocationListener {
         }
         if (ttsReady) tts.stop();
         if (recognizer != null) { try { recognizer.destroy(); } catch (Exception ignored) { } }
+        try { if (msm != null) msm.removeOnActiveSessionsChangedListener(sessionsCb); if (mediaCtl != null) mediaCtl.unregisterCallback(mediaCb); } catch (Exception ignored) { }
         recognizer = android.speech.SpeechRecognizer.createSpeechRecognizer(this);
         recognizer.setRecognitionListener(new android.speech.RecognitionListener() {
             @Override public void onReadyForSpeech(Bundle b) { voiceJs("onVoiceState", "escuchando"); }
@@ -589,6 +756,7 @@ public class MainActivity extends Activity implements LocationListener {
     @Override
     protected void onResume() {
         super.onResume();
+        startMedia();
         if (web != null) web.evaluateJavascript("window.onResume&&window.onResume()", null);
     }
 
@@ -611,6 +779,7 @@ public class MainActivity extends Activity implements LocationListener {
         if (tts != null) tts.shutdown();
         if (tone != null) tone.release();
         if (recognizer != null) { try { recognizer.destroy(); } catch (Exception ignored) { } }
+        try { if (msm != null) msm.removeOnActiveSessionsChangedListener(sessionsCb); if (mediaCtl != null) mediaCtl.unregisterCallback(mediaCb); } catch (Exception ignored) { }
         prefetchPool.shutdownNow();
         pool.shutdownNow();
         if (web != null) { web.destroy(); web = null; }

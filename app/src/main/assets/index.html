@@ -94,13 +94,17 @@
 
 <!-- Botones laterales -->
 <div id="fabs">
+  <button id="btnMore" class="fab" title="Más botones">⋯</button>
+  <div id="fabMore">
+    <button id="btnSet2" class="fab hidden" title="Ajustes">⚙️</button>
+    <button id="btnGas" class="fab hidden" title="Gasolineras">⛽</button>
+    <button id="btnStyle" class="fab" title="Tipo de mapa">🗺️</button>
+    <button id="btnTraffic" class="fab" title="Tráfico">🚦</button>
+    <button id="btnLayers" class="fab" title="Qué ver en el mapa">🧩</button>
+  </div>
+  <button id="btnMedia" class="fab media" title="Música">🎵</button>
   <button id="btnMic" class="fab" title="Órdenes por voz">🎤</button>
   <button id="btnSound" class="fab" title="Sonido">🔊</button>
-  <button id="btnStyle" class="fab" title="Tipo de mapa">🗺️</button>
-  <button id="btnSet2" class="fab hidden" title="Ajustes">⚙️</button>
-  <button id="btnGas" class="fab hidden" title="Gasolineras">⛽</button>
-  <button id="btnTraffic" class="fab" title="Tráfico">🚦</button>
-  <button id="btnLayers" class="fab" title="Qué ver en el mapa">🧩</button>
   <button id="btnReport" class="fab warn" title="Avisar">⚠️</button>
 </div>
 <button id="btnRecenter" class="pill hidden">◎ Recentrar</button>
@@ -110,6 +114,10 @@
 <div id="sheet" class="hidden"><div class="grab"></div><div id="sheetBody"></div></div>
 
 <div id="toast" class="hidden"></div>
+<div id="mediaCard" class="hidden">
+  <div class="mcTop"><img id="mcArt" alt=""><div class="mcTxt"><div id="mcTitle">—</div><div id="mcArtist"></div><div id="mcApp"></div></div></div>
+  <div class="mcBtns"><button data-mc="prev">⏮</button><button data-mc="toggle" id="mcPlay">⏯</button><button data-mc="next">⏭</button></div>
+</div>
 <div id="camView" class="hidden"><video id="camVideo" autoplay playsinline muted></video>
   <div id="camInfo"></div><button id="camClose" class="round red">✕</button></div>
 <div id="voiceBox" class="hidden"><div class="vbIco">🎤</div><div id="vbTxt">Te escucho…</div></div>

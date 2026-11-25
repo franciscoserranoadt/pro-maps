@@ -291,3 +291,31 @@ body.lanes #parkPill{top:calc(196px + var(--safe-t))}
 #camVideo{width:100%;height:100%;object-fit:cover}
 #camInfo{position:absolute;left:12px;top:calc(12px + var(--safe-t));background:#000a;padding:8px 12px;border-radius:12px;font-size:14px}
 #camClose{position:absolute;right:16px;top:calc(12px + var(--safe-t))}
+
+/* Música */
+.fab.media{padding:0;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.fab.media img{width:34px;height:34px;border-radius:9px}
+.fab.media.playing{box-shadow:0 0 0 3px #1db95488,0 4px 14px rgba(0,0,0,.5)}
+#mediaCard{position:absolute;z-index:9;right:80px;bottom:calc(150px + var(--safe-b));width:min(340px,calc(100vw - 100px));background:var(--panel);
+  border-radius:18px;padding:12px;box-shadow:0 8px 26px rgba(0,0,0,.6);border:1px solid #2b4570}
+body.nav #mediaCard{bottom:calc(270px + var(--safe-b))}
+.mcTop{display:flex;gap:12px;align-items:center}
+#mcArt{width:64px;height:64px;border-radius:12px;object-fit:cover;background:#22385a;flex:none}
+.mcTxt{min-width:0;flex:1}
+#mcTitle{font-size:17px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#mcArtist{font-size:14px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#mcApp{font-size:12px;color:#7fa2d6;margin-top:2px}
+.mcBtns{display:flex;justify-content:space-around;margin-top:10px}
+.mcBtns button{width:54px;height:54px;border-radius:50%;background:var(--panel2);font-size:24px}
+.mcBtns #mcPlay{background:var(--blue);width:62px;height:62px}
+@media (orientation: landscape) and (min-width: 700px) { body.nav #mediaCard{right:12px;bottom:calc(86px + var(--safe-b))} }
+
+/* Botones secundarios dentro de «⋯» */
+#fabs{position:absolute}
+#fabMore{display:none;position:absolute;right:68px;bottom:0;flex-direction:column-reverse;gap:12px}
+body.more #fabMore{display:flex}
+body.more #btnMore{background:var(--blue)}
+@media (orientation: landscape) and (min-width: 700px) {
+  body.nav #btnMore{display:none}
+  body.nav #fabMore{display:flex;position:static;flex-direction:row-reverse}
+}

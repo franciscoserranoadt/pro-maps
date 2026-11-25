@@ -1,1 +1,3 @@
-• Prueba de la dash cam: arreglado el error «OverconstrainedError» al abrir la cámara.
+• Nuevo botón 🎵 de música: muestra el icono de la app que suena (Spotify, Deezer, YouTube Music, radio…) y una tarjeta con la canción, la carátula y ⏮ ⏯ ⏭.
+• Por voz: «siguiente canción», «pausa», «pon la música», «¿qué suena?».
+• En el móvil en vertical, los botones menos usados van dentro de «⋯» para que no tapen los avisos.
