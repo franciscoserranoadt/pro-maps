@@ -43,7 +43,7 @@ final class Updater {
         }
     }
 
-    static String installedName(Activity a) {
+    static String installedName(android.content.Context a) {
         try {
             return a.getPackageManager().getPackageInfo(a.getPackageName(), 0).versionName;
         } catch (Exception e) {
