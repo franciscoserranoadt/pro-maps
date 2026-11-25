@@ -937,7 +937,7 @@ async function goTo(d, keepStops, walk) {
   }
   preview = true; selIdx = 0; setFollow(false);
   drawRoutes(); fitRoutes();
-  if (CAR) { closeSheet(); startNav(); return; }
+  if (CAR) { startNav(); closeSheet(); return; }
   routeSheet();
   if (cfg.tomtom && cfg.ttinc) loadTT().then(() => { if (preview && sheetOpen() && $('#rGo')) routeSheet(); });
 }
