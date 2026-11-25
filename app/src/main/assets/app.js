@@ -644,12 +644,12 @@ function openSheet(html, onClose) {
   if (backTo && html.indexOf('id="setBack"') < 0) html = '<button class="back" id="sheetBack">‹ Ajustes</button>' + html;
   $('#sheetBody').innerHTML = html; delete $('#sheetBody').dataset.gas;
   const sb = document.getElementById('sheetBack'); if (sb) { const f = backTo; sb.onclick = () => { sheetOnClose = null; f(); }; }
-  $('#sheet').classList.remove('hidden'); $('#sheetBg').classList.remove('hidden');
+  $('#sheet').classList.remove('hidden', 'routes'); $('#sheetBg').classList.remove('hidden'); document.body.classList.remove('picking-route');
   $('#sheet').scrollTop = 0; sheetOnClose = onClose || null;
 }
 function closeSheet() {
   backTo = null;
-  $('#sheet').classList.add('hidden'); $('#sheetBg').classList.add('hidden');
+  $('#sheet').classList.add('hidden'); $('#sheetBg').classList.add('hidden'); $('#sheet').classList.remove('routes'); document.body.classList.remove('picking-route');
   const f = sheetOnClose; sheetOnClose = null; if (f) f();
 }
 const sheetOpen = () => !$('#sheet').classList.contains('hidden');
@@ -936,42 +936,55 @@ async function goTo(d, keepStops, walk) {
     $('#rx').onclick = closeSheet; return;
   }
   preview = true; selIdx = 0; setFollow(false);
-  drawRoutes(); fitRoutes();
-  if (CAR) { startNav(); closeSheet(); return; }
-  routeSheet();
+  drawRoutes();
+  if (CAR) { fitRoutes(); startNav(); closeSheet(); return; }
+  routeSheet(); fitRoutes();
   if (cfg.tomtom && cfg.ttinc) loadTT().then(() => { if (preview && sheetOpen() && $('#rGo')) routeSheet(); });
 }
 function fitRoutes() {
   let a = 180, b = 90, c = -180, d = -90;
   for (const r of routes) { a = Math.min(a, r.bbox[0]); b = Math.min(b, r.bbox[1]); c = Math.max(c, r.bbox[2]); d = Math.max(d, r.bbox[3]); }
-  map.fitBounds([[a, b], [c, d]], { padding: { top: 80, bottom: Math.round(window.innerHeight * 0.45), left: 40, right: 40 }, bearing: 0, pitch: 0, duration: 800 });
+  const sh = $('#sheet'), open = sh && !sh.classList.contains('hidden'), side = innerWidth > innerHeight && innerWidth >= 700;
+  const pad = side ? { top: 40, bottom: 40, left: (open ? sh.offsetWidth + 24 : 40), right: 90 }
+    : { top: 40, bottom: (open ? sh.offsetHeight + 20 : Math.round(innerHeight * 0.45)), left: 30, right: 80 };
+  map.fitBounds([[a, b], [c, d]], { padding: pad, bearing: 0, pitch: 0, duration: 800 });
 }
 function routeSheet() {
-  const best = Math.min(...routes.map(r => r.time));
-  let h = '<div class="sTitle">' + (routeMode === 'walk' ? '🚶 ' : '🚗 ') + esc(dest.name) + '</div>' + (dest.sub ? '<div class="sSub">' + esc(dest.sub) + '</div>' : '');
+  const best = Math.min(...routes.map(r => r.time)), shortest = Math.min(...routes.map(x => x.len));
+  let h = '<div class="rHead"><div class="sTitle">' + (routeMode === 'walk' ? '🚶 ' : '🚗 ') + esc(dest.name) + '</div>' + (dest.sub ? '<div class="sSub">' + esc(dest.sub) + '</div>' : '') + '</div>';
   const z = routes[selIdx] && routes[selIdx].zbe;
-  if (z) h += '<div class="row"><div class="ri">🌿</div><div class="rt"><div class="r1">Entra en la ZBE ' + esc(z.name) + '</div><div class="r2">' +
-    (zbeMustAvoid() ? '⚠️ Con etiqueta ' + LABEL_NAME[cfg.label] + ' puede que no puedas entrar' : 'Con etiqueta ' + LABEL_NAME[cfg.label] + ' puedes entrar') + '</div></div></div>';
-  if (routeMode === 'car') h += '<div class="chips">' + [['fastest', '⚡ Más rápida'], ['shortest', '📏 Más corta']]
-    .map(([k, n]) => '<button class="chip" data-rk="' + k + '"' + (routeKind() === k ? ' style="background:#1a73e8"' : '') + '>' + n + '</button>').join('') + '</div>';
-  if (cfg.parkNear && routeMode === 'car') h += '<div class="row" id="rPark"><div class="ri">🅿️</div><div class="rt"><div class="r1">Aparcamientos cerca del destino</div><div class="r2" id="rParkN">Buscando…</div></div></div>';
+  if (z) h += '<div class="rNote">🌿 Entra en la ZBE ' + esc(z.name) + ' · ' + (zbeMustAvoid() ? '⚠️ con etiqueta ' + LABEL_NAME[cfg.label] + ' puede que no puedas entrar' : 'con etiqueta ' + LABEL_NAME[cfg.label] + ' puedes entrar') + '</div>';
+  h += '<div class="chips rChips">';
+  if (routeMode === 'car') h += [['fastest', '⚡ Más rápida'], ['shortest', '📏 Más corta']]
+    .map(([k, n]) => '<button class="chip' + (routeKind() === k ? ' on' : '') + '" data-rk="' + k + '">' + n + '</button>').join('');
+  if (cfg.parkNear && routeMode === 'car') h += '<button class="chip" id="rPark">🅿️ <span id="rParkN">…</span></button>';
+  h += '</div>';
   stops.forEach((p, i) => {
     h += '<div class="row"><div class="ri">📍</div><div class="rt"><div class="r1">Parada ' + (i + 1) + ': ' + esc(p.name) + '</div>' +
       (p.sub ? '<div class="r2">' + esc(p.sub) + '</div>' : '') + '</div><button class="rowbtn" data-xs="' + i + '">✕</button></div>';
   });
+  h += '<div class="rCards">';
   routes.forEach((r, i) => {
     const eta = new Date(Date.now() + r.time * 1000).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-    const t2 = fmtDist(r.len) + ' · llegada ' + eta + (r.delay > 60 ? ' · 🔴 +' + fmtTime(r.delay) + ' atasco' : '');
-    const t3 = '📷 ' + r.nCam + ' radar' + (r.nCam === 1 ? '' : 'es') + ' · ⚠️ ' + r.nInc + ' aviso' + (r.nInc === 1 ? '' : 's');
-    h += '<div class="row' + (i === selIdx ? ' sel' : '') + '" data-r="' + i + '"><div class="ri">' + (i === 0 ? '⭐' : '↪️') + '</div><div class="rt"><div class="r1">' +
-      fmtTime(r.time) + (routes.length > 1 ? (routeKind() === 'shortest' ? (r.len === Math.min(...routes.map(x => x.len)) ? ' · la más corta' : '') : (r.time === best ? ' · la más rápida' : '')) : '') + '</div><div class="r2">' + t2 + '</div><div class="r2">' + t3 + '</div></div></div>';
+    const tag = routes.length > 1 ? (routeKind() === 'shortest' ? (r.len === shortest ? 'La más corta' : '') : (r.time === best ? 'La más rápida' : '')) : '';
+    h += '<button class="rCard' + (i === selIdx ? ' sel' : '') + '" data-r="' + i + '">' +
+      '<b>' + fmtTime(r.time) + '</b>' + (tag ? '<i>' + tag + '</i>' : '<i>&nbsp;</i>') +
+      '<span>' + fmtDist(r.len) + ' · ' + eta + '</span>' +
+      (r.delay > 60 ? '<span class="red">🔴 +' + fmtTime(r.delay) + ' atasco</span>' : '') +
+      '<span>📷 ' + r.nCam + ' · ⚠️ ' + r.nInc + '</span></button>';
   });
-  h += '<button class="btn" id="rGo">▶ Iniciar</button>' +
-    '<div class="btnrow"><button class="btn alt" id="rStop">➕ Parada</button><button class="btn alt" id="rGas">⛽ Gasolineras</button><button class="btn alt" id="rList">📋 Detalles</button></div>' +
+  h += '</div>';
+  h += '<div class="rActs"><button class="btn" id="rGo">▶ Iniciar</button>' +
+    '<button class="rIco" id="rStop" title="Parada">➕<small>Parada</small></button><button class="rIco" id="rGas">⛽<small>Gasolina</small></button>' +
+    '<button class="rIco" id="rList">📋<small>Detalles</small></button><button class="rIco" id="rMore">⋯<small>Más</small></button></div>' +
+    '<div id="rMoreBox" class="hidden">' +
     (routeMode === 'car' ? '<button class="btn alt" id="rSave">💾 Guardar esta ruta</button>' : '') +
-    '<div class="btnrow"><button class="btn alt" id="rFav">⭐ Favorito</button><button class="btn alt" id="rHome">🏠 Casa</button><button class="btn alt" id="rWork">💼 Trabajo</button></div>';
-  h += '<div class="muted" style="margin-top:8px">Rutas: ' + (routes[0].src === 'TomTom' ? 'TomTom con tráfico en directo' : 'OpenStreetMap (Valhalla)') + '</div>';
+    '<div class="btnrow"><button class="btn alt" id="rFav">⭐ Favorito</button><button class="btn alt" id="rHome">🏠 Casa</button><button class="btn alt" id="rWork">💼 Trabajo</button></div>' +
+    '<div class="muted" style="margin-top:8px">Rutas: ' + (routes[0].src === 'TomTom' ? 'TomTom con tráfico en directo' : 'OpenStreetMap (Valhalla)') + '</div></div>';
   openSheet(h, cancelPreview);
+  $('#sheet').classList.add('routes'); $('#sheetBg').classList.add('hidden'); document.body.classList.add('picking-route');
+  { const c = $('#sheetBody .rCard.sel'); if (c) c.scrollIntoView({ inline: 'center', block: 'nearest' }); }
+  $('#rMore').onclick = () => { $('#rMoreBox').classList.toggle('hidden'); setTimeout(fitRoutes, 50); };
   document.querySelectorAll('#sheetBody [data-r]').forEach(el => el.onclick = () => selectRoute(+el.dataset.r));
   $('#rGo').onclick = () => { sheetOnClose = null; closeSheet(); startNav(); };
   $('#rList').onclick = () => stepsSheet(routes[selIdx], false);
@@ -983,7 +996,7 @@ function routeSheet() {
     viaPts = keepVia;
   });
   if ($('#rSave')) $('#rSave').onclick = () => saveRouteSheet(routes[selIdx]);
-  if ($('#rPark')) { $('#rPark').onclick = () => parkListSheet(true); loadParkings(dest).then(() => { const e = $('#rParkN'); if (e) e.textContent = parkings.length ? parkings.length + ' a menos de 800 m · toca para verlos' : 'No hay datos de aparcamientos aquí'; }); }
+  if ($('#rPark')) { $('#rPark').onclick = () => parkListSheet(true); loadParkings(dest).then(() => { const e = $('#rParkN'); if (e) e.textContent = parkings.length ? parkings.length + ' parkings' : 'sin datos'; }); }
   $('#rGas').onclick = () => gasSheet(routes[selIdx], 0);
   $('#rFav').onclick = () => addFavorite(dest);
   $('#rHome').onclick = () => setFav('casa', Object.assign({}, dest, { name: 'Casa', sub: dest.name }));

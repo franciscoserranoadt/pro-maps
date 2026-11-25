@@ -526,3 +526,42 @@ html.car #speed,html.car body.nav #speed{right:calc(var(--cr,0px) + 12px);bottom
 html.car #speed svg{inset:3px;width:78px;height:78px}
 html.car #limit,html.car body.nav #limit{right:calc(var(--cr,0px) + 104px);bottom:calc(var(--cb,0px) + 20px);left:auto}
 html.car #wx,html.car body.nav #wx{right:calc(var(--cr,0px) + 12px);bottom:calc(var(--cb,0px) + 104px);left:auto}
+
+/* =================== Elegir ruta: tarjeta baja para ver el mapa =================== */
+body.picking-route #topBar,body.picking-route #home,body.picking-route #rail .grp:last-child{display:none}
+#sheet.routes{max-height:none;padding-bottom:calc(10px + var(--safe-b))}
+#sheet.routes .grab{display:none}
+.rHead .sTitle{font-size:20px;margin-bottom:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rHead .sSub{font-size:13px;margin:2px 0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rNote{font-size:13px;color:var(--sub);margin:2px 0 6px}
+.rChips{flex-wrap:nowrap;overflow-x:auto;margin:4px 0 8px;scrollbar-width:none}
+.rChips .chip{flex:none;padding:8px 14px;font-size:14px}
+.rChips .chip.on{background:var(--blue);color:#fff}
+.rCards{display:flex;gap:10px;overflow-x:auto;scrollbar-width:none;padding:2px 2px 4px;margin:0 -2px 10px}
+.rCards::-webkit-scrollbar,.rChips::-webkit-scrollbar{display:none}
+.rCard{flex:none;width:150px;background:var(--panel2);border:3px solid transparent;border-radius:18px;padding:10px 12px;display:flex;flex-direction:column;gap:2px;text-align:left}
+.rCard.sel{border-color:#29b6f6}
+.rCard b{font-size:22px}
+.rCard i{font-style:normal;font-size:12px;color:#29b6f6;font-weight:700}
+.rCard span{font-size:13px;color:var(--sub)}
+.rCard span.red{color:#ff8a80}
+.rActs{display:flex;gap:8px;align-items:stretch}
+.rActs .btn{flex:1;margin:0;font-size:19px}
+.rIco{width:58px;flex:none;background:var(--panel2);border-radius:16px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:20px;gap:2px}
+.rIco small{font-size:10px;color:var(--sub)}
+#rMoreBox{margin-top:8px}
+@media (orientation: landscape) and (min-width: 700px) {
+  #sheet.routes{left:12px;right:auto;top:12px;bottom:12px;width:380px;max-height:none;overflow-y:auto}
+  #sheet.routes .rCards{flex-direction:column;overflow:visible}
+  #sheet.routes .rCard{width:auto;flex-direction:row;flex-wrap:wrap;align-items:baseline;column-gap:10px}
+  #sheet.routes .rCard i{order:5;width:100%}
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  #sheet.routes{top:8px;bottom:8px;width:340px}
+}
+@media (orientation: landscape) and (min-width: 700px) {
+  #sheet.routes{bottom:auto;max-height:calc(100vh - 24px)}
+  #sheet.routes .rIco{width:50px}
+  #sheet.routes .rActs .btn{white-space:nowrap;font-size:17px;padding-left:6px;padding-right:6px}
+}
+.rActs .btn{white-space:nowrap}
