@@ -514,3 +514,15 @@ body.nav #rail .circ{width:50px;height:50px}
   .rpT{padding:8px 4px;font-size:12px;gap:5px}.rpT .ic{width:36px;height:36px}
   #sheet{max-height:calc(100vh - 16px);bottom:8px}
 }
+
+/* =================== Android Auto (pantalla del coche) =================== */
+html.car #topBar,html.car #home,html.car #rail,html.car #legacy,html.car #sheet,html.car #sheetBg,html.car #btnRecenter,html.car #banner,
+html.car #navBar,html.car #routeBar,html.car #mediaCard,html.car #reportPop,html.car #notice,html.car #altPrompt,html.car #parkPill,html.car #toast,
+html.car #voiceBox,html.car #camView,html.car .maplibregl-ctrl-bottom-right,html.car .maplibregl-ctrl-bottom-left{display:none!important}
+html.car #side,html.car body.nav #side{display:flex!important;flex-direction:column;gap:8px;position:absolute;z-index:8;left:auto;bottom:auto;
+  right:calc(var(--cr,0px) + 10px);top:calc(var(--ct,0px) + 10px);width:290px;background:none;padding:0}
+html.car #side > *{position:static!important;margin:0!important;width:auto!important;left:auto!important;right:auto!important;top:auto!important;transform:none!important}
+html.car #speed,html.car body.nav #speed{right:calc(var(--cr,0px) + 12px);bottom:calc(var(--cb,0px) + 12px);left:auto;width:84px;height:84px}
+html.car #speed svg{inset:3px;width:78px;height:78px}
+html.car #limit,html.car body.nav #limit{right:calc(var(--cr,0px) + 104px);bottom:calc(var(--cb,0px) + 20px);left:auto}
+html.car #wx,html.car body.nav #wx{right:calc(var(--cr,0px) + 12px);bottom:calc(var(--cb,0px) + 104px);left:auto}

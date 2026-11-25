@@ -3,6 +3,10 @@
 
 const $ = s => document.querySelector(s);
 const N = window.Nativo || null;
+/** Android Auto: la misma página dibujada en la pantalla del coche */
+const CAR = /[?&]car=1/.test(location.search);
+if (CAR) document.documentElement.classList.add('car');
+let carArea = { l: 0, t: 0, r: 0, b: 0 };
 
 
 /* ====================== Iconos de línea (dibujados a mano, sin librerías) ====================== */
@@ -927,11 +931,13 @@ async function goTo(d, keepStops, walk) {
     routes = (await calcRoutes(from)).map(prepRoute);
     if (!routes.length) throw new Error('sin ruta');
   } catch (e) {
+    if (CAR && N) { N.carNav('{"err":' + JSON.stringify('No hay ruta: ' + e.message) + '}'); return; }
     openSheet('<div class="sTitle">No hay ruta</div><div class="sSub">' + esc(e.message) + '</div><button class="btn alt" id="rx">Cerrar</button>', cancelPreview);
     $('#rx').onclick = closeSheet; return;
   }
   preview = true; selIdx = 0; setFollow(false);
   drawRoutes(); fitRoutes();
+  if (CAR) { closeSheet(); startNav(); return; }
   routeSheet();
   if (cfg.tomtom && cfg.ttinc) loadTT().then(() => { if (preview && sheetOpen() && $('#rGo')) routeSheet(); });
 }
@@ -1028,6 +1034,7 @@ function stopNav(silent) {
   $('#searchBar').classList.remove('hidden'); $('#banner').classList.add('hidden'); $('#navBar').classList.add('hidden');
   drawRoutes(); setFollow(true);
   if (!silent && N) N.stopSpeak();
+  if (CAR && N) N.carNav('{}');
 }
 $('#btnStop').onclick = () => {
   openSheet('<div class="sTitle">¿Terminar la ruta?</div><button class="btn red" id="sY">Sí, terminar</button><button class="btn alt" id="sN">Seguir</button>');
@@ -1097,6 +1104,8 @@ function navUpdate() {
   const remT = r.time * (rest / r.total);
   $('#nEta').textContent = new Date(Date.now() + remT * 1000).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
   $('#nRest').textContent = fmtTime(remT) + ' · ' + fmtDist(rest);
+  if (CAR && N) N.carNav(JSON.stringify({ nav: 1, kind: st.kind, dist: Math.round(dm), street: st.street || '', text: st.text || '',
+    then: nx && nx.at - st.at < 150 ? nx.kind : '', rest: Math.round(rest), remT: Math.round(remT), dest: dest ? dest.name : '' }));
   // 3) Voz
   const v = Math.max(speedMs, 5);
   const far = v > 25 ? 2000 : v > 14 ? 800 : 350;
@@ -1248,7 +1257,8 @@ function moveCamera() {
   const pitch = junction ? 0 : !cfg.persp ? 0 : navigating ? 55 : (kmh > 8 ? 40 : 0);
   const h = map.getCanvas().clientHeight;
   map.easeTo({ center: meMarker.getLngLat(), zoom: z, bearing: cfg.northUp ? 0 : (navigating || kmh > 8 ? heading : map.getBearing()), pitch,
-    padding: navigating && landscapeNav() ? { top: Math.round(h * 0.3), bottom: 0, left: Math.round(map.getCanvas().clientWidth * 0.36), right: 0 }
+    padding: CAR ? { left: carArea.l, right: carArea.r, bottom: carArea.b,
+        top: carArea.t + Math.round((h - carArea.t - carArea.b) * (navigating ? 0.35 : 0)) } : navigating && landscapeNav() ? { top: Math.round(h * 0.3), bottom: 0, left: Math.round(map.getCanvas().clientWidth * 0.36), right: 0 }
       : { top: navigating ? Math.round(h * 0.4) : 0, bottom: 0, left: 0, right: 0 }, duration: 950, easing: t => t });
 }
 let camZ = null;
@@ -3349,3 +3359,41 @@ window.onBack = () => {
 };
 
 boot();
+
+
+/* ====================== Android Auto (lo llama la parte nativa del coche) ====================== */
+if (CAR) {
+  window.carSetArea = (l, t, r, b) => {
+    carArea = { l, t, r, b };
+    const st = document.documentElement.style;
+    st.setProperty('--cl', l + 'px'); st.setProperty('--ct', t + 'px'); st.setProperty('--cr', r + 'px'); st.setProperty('--cb', b + 'px');
+    if (map) { map.resize(); if (follow && me) moveCamera(); }
+  };
+  window.carPan = (dx, dy) => { if (!map) return; setFollow(false); map.panBy([dx, dy], { duration: 0 }); };
+  window.carScale = (fx, fy, f) => { if (!map) return; setFollow(false); map.zoomTo(map.getZoom() + Math.log2(f), { around: map.unproject([fx, fy]), duration: 0 }); };
+  window.carZoom = k => { if (follow && me) { zoomAdj = Math.max(-4, Math.min(3, zoomAdj + k)); camZ = null; moveCamera(); } else map[k > 0 ? 'zoomIn' : 'zoomOut'](); };
+  window.carCenter = () => setFollow(true);
+  window.carDests = () => {
+    const out = [];
+    if (favs.casa) out.push({ ic: 'casa', name: 'Casa', sub: favs.casa.sub || '', lat: favs.casa.lat, lon: favs.casa.lon });
+    if (favs.trabajo) out.push({ ic: 'trabajo', name: 'Trabajo', sub: favs.trabajo.sub || '', lat: favs.trabajo.lat, lon: favs.trabajo.lon });
+    favList.forEach(f => out.push({ ic: 'fav', name: f.name, sub: f.sub || '', lat: f.lat, lon: f.lon }));
+    recents.slice(0, 8).forEach(r => out.push({ ic: 'rec', name: r.name, sub: r.sub || '', lat: r.lat, lon: r.lon }));
+    return out.filter(d => d.lat != null && d.lon != null).map(d => Object.assign(d, { d: me ? Math.round(dist(me, [d.lon, d.lat])) : -1 }));
+  };
+  window.carSearch = async q => {
+    let res = [];
+    try {
+      res = await searchCarto(q);
+      for (const d of res.slice(0, 6)) if (d.lat == null && d.cc) { try { await ccFind(d); } catch (e) { } }
+    } catch (e) { }
+    res = res.filter(d => d.lat != null).slice(0, 6).map(d => ({ name: d.name, sub: d.sub || '', lat: d.lat, lon: d.lon, d: me ? Math.round(dist(me, [d.lon, d.lat])) : -1 }));
+    N.carResults(JSON.stringify(res));
+  };
+  window.carGo = (lat, lon, name, sub) => goTo({ name, sub: sub || '', lat, lon });
+  window.carStop = () => { if (navigating) stopNav(); };
+  window.carReport = k => { if (me) addReport(k, me); };
+  window.carSound = () => { setSound({ all: 'alerts', alerts: 'off', off: 'all' }[cfg.sound] || 'all'); return cfg.sound; };
+  window.carSoundNow = () => cfg.sound;
+  window.carReroute = () => { if (navigating) reroute(); };
+}

@@ -1,1 +1,2 @@
-Móvil en horizontal: botones, velocímetro y panel de Casa/Trabajo más compactos para que no se tapen entre ellos.
+Pro Maps ya funciona en Android Auto: mapa, búsqueda, destinos (Casa, Trabajo, favoritos), guiado con la tarjeta de maniobras, avisos de radares y botón para avisar.
+Para que aparezca hay que activar «Fuentes desconocidas» en los ajustes de desarrollador de Android Auto.

@@ -486,11 +486,13 @@ public class MainActivity extends Activity implements LocationListener {
 
         @JavascriptInterface
         public void speak(String text) {
+            if (CarService.active) return;
             if (ttsReady) tts.speak(text, TextToSpeech.QUEUE_ADD, null, "p" + System.nanoTime());
         }
 
         @JavascriptInterface
         public void speakNow(String text) {
+            if (CarService.active) return;
             if (ttsReady) tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "p" + System.nanoTime());
         }
 
@@ -499,7 +501,7 @@ public class MainActivity extends Activity implements LocationListener {
 
         @JavascriptInterface
         public void beep(int kind) {
-            if (tone == null) return;
+            if (tone == null || CarService.active) return;
             try {
                 tone.startTone(kind == 2 ? ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD
                         : ToneGenerator.TONE_PROP_BEEP2, kind == 2 ? 600 : 250);
