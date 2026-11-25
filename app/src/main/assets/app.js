@@ -2580,10 +2580,11 @@ function sunPosition(date, lat, lon) {
 function lightNow() {
   const p = me || store.get('lastPos', [-3.8249, 40.3459]);
   const s = sunPosition(new Date(), p[1], p[0]);
-  if (s.alt > 12) return { phase: 'sol', bearing: s.bearing, alt: s.alt, color: '#ffffff', intensity: 0.45, shadow: 0.2, tint: '#000000' };
-  if (s.alt > -4) return { phase: s.bearing < 180 ? 'amanecer' : 'atardecer', bearing: s.bearing, alt: Math.max(s.alt, 5), color: '#ffc58f', intensity: 0.5, shadow: 0.26, tint: '#2b1606' };
-  // de noche: luz de luna aproximada, suave y azulada, desde el lado contrario al sol
-  return { phase: 'luna', bearing: (s.bearing + 180) % 360, alt: 35, color: '#9fb4e8', intensity: 0.3, shadow: 0.1, tint: '#050a1a' };
+  // La luz es siempre blanca: los edificios mantienen su color; solo cambian la dirección y el largo de las sombras
+  if (s.alt > 12) return { phase: 'sol', bearing: s.bearing, alt: s.alt, color: '#ffffff', intensity: 0.35, shadow: 0.18, tint: '#000000' };
+  if (s.alt > -4) return { phase: s.bearing < 180 ? 'amanecer' : 'atardecer', bearing: s.bearing, alt: Math.max(s.alt, 5), color: '#ffffff', intensity: 0.35, shadow: 0.2, tint: '#000000' };
+  // de noche: luz de luna aproximada y suave, desde el lado contrario al sol
+  return { phase: 'luna', bearing: (s.bearing + 180) % 360, alt: 35, color: '#ffffff', intensity: 0.3, shadow: 0.1, tint: '#000000' };
 }
 const SHADOW_BINS = [[0, 12, 8], [12, 30, 20], [30, 9999, 45]]; // alturas (m) y altura típica de cada grupo
 function addShadowLayers(src) {
