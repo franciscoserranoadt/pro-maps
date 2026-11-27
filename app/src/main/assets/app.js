@@ -405,7 +405,7 @@ async function boot() {
   styleOk.dark = await Promise.race([get(STYLE.dark).then(() => true, () => false), new Promise(r => setTimeout(() => r(false), 4000))]);
   curStyle = wantedStyle();
   map = new maplibregl.Map({ container: 'map', style: STYLE[curStyle], center: start, zoom: 14, attributionControl: { compact: true },
-    pitchWithRotate: true, dragRotate: true, maxPitch: 70, fadeDuration: 0 });
+    pitchWithRotate: true, dragRotate: true, maxPitch: 70, fadeDuration: 0, pixelRatio: Math.min(window.devicePixelRatio || 1, 2), antialias: false });
   map.on('style.load', onStyleLoad);
   map.on('error', e => console.log('map error ' + (e && e.error && e.error.message)));
   map.on('dragstart', () => setFollow(false));
@@ -1100,7 +1100,8 @@ function navUpdate() {
   if (nav.off === 0 && best.d < 25 && r.coords[nav.idx + 1]) { // dibujar la flecha encima de la carretera
     const A = r.coords[nav.idx], B = r.coords[nav.idx + 1];
     setCarTarget([A[0] + (B[0] - A[0]) * best.t, A[1] + (B[1] - A[1]) * best.t]);
-  }
+    anim.onRoute = { r, along: nav.along };
+  } else anim.onRoute = null;
   if (viaPts && viaPts.length && dist(me, viaPts[0]) < 250) viaPts.shift();
   // Alternativas: se quitan las que ya has dejado atrás; se buscan nuevas cada 2 min
   const nAlt = navAlts.length;
@@ -1299,9 +1300,20 @@ const anim = { disp: null, from: null, fromT: 0, fix: null, fixT: 0, v: 0, h: 0,
 function setCarTarget(pos) {
   const now = performance.now();
   if (!anim.disp || dist(anim.disp, pos) > 300) { anim.disp = pos.slice(); if (meMarker) meMarker.setLngLat(pos); }
+  // Diferencia entre lo que se ve y el GPS nuevo: se irá borrando suavemente, sin frenar ni acelerar
+  anim.off = [anim.disp[0] - pos[0], anim.disp[1] - pos[1]];
   anim.from = anim.disp.slice(); anim.fromT = now;
   anim.fix = pos.slice(); anim.fixT = now; anim.v = speedMs; anim.h = heading;
   if (anim.brg == null) anim.brg = heading;
+}
+/** Punto y rumbo de la ruta a «s» metros del inicio */
+function routeAt(r, s) {
+  const c = r.cum; let lo = 0, hi = c.length - 1;
+  if (s <= 0) return { p: r.coords[0], i: 0 };
+  if (s >= c[hi]) return { p: r.coords[hi], i: hi - 1 };
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (c[m] <= s) lo = m; else hi = m; }
+  const A = r.coords[lo], B = r.coords[lo + 1], k = (s - c[lo]) / ((c[lo + 1] - c[lo]) || 1);
+  return { p: [A[0] + (B[0] - A[0]) * k, A[1] + (B[1] - A[1]) * k], i: lo };
 }
 function movePt(p, brgDeg, m) {
   const b = brgDeg * Math.PI / 180;
@@ -1313,15 +1325,22 @@ function animFrame(t) {
   if (!map || !anim.fix || !meMarker) return;
   const dt = Math.min(0.1, Math.max(0, (t - (anim.last || t)) / 1000)); anim.last = t;
   // Dónde está el coche ahora: posición del GPS + lo que ha avanzado desde entonces (máx. 1,5 s)
-  const ahead = anim.v > 1.2 ? anim.v * Math.min(1.5, (t - anim.fixT) / 1000) : 0;
-  const tgt = ahead ? movePt(anim.fix, anim.h, ahead) : anim.fix;
-  const k = Math.min(1, (t - anim.fromT) / 900), e = k * k * (3 - 2 * k);
-  const pos = [anim.from[0] + (tgt[0] - anim.from[0]) * e, anim.from[1] + (tgt[1] - anim.from[1]) * e];
+  const ahead = anim.v > 1.2 ? anim.v * Math.min(2, (t - anim.fixT) / 1000) : 0;
+  let tgt;
+  if (anim.onRoute && navigating && anim.onRoute.r === active) {
+    // En ruta: avanza por encima de la carretera dibujada, siguiendo sus curvas
+    const q = routeAt(active, anim.onRoute.along + ahead); tgt = q.p;
+    const A = active.coords[q.i], B = active.coords[q.i + 1];
+    if (A && B && anim.v > 2) heading = bearing(A, B);
+  } else tgt = ahead ? movePt(anim.fix, anim.brg == null ? anim.h : anim.brg, ahead) : anim.fix;
+  if (!anim.off) anim.off = [0, 0];
+  const dec = Math.exp(-dt * 2.5); anim.off[0] *= dec; anim.off[1] *= dec;
+  const pos = [tgt[0] + anim.off[0], tgt[1] + anim.off[1]];
   const moved = !anim.disp || Math.abs(pos[0] - anim.disp[0]) + Math.abs(pos[1] - anim.disp[1]) > 1e-8;
   anim.disp = pos;
   // El giro también se suaviza
   const dB = sAng(heading, anim.brg == null ? heading : anim.brg);
-  anim.brg = ((anim.brg == null ? heading : anim.brg) + dB * Math.min(1, dt * 5) + 360) % 360;
+  anim.brg = ((anim.brg == null ? heading : anim.brg) + dB * Math.min(1, dt * 3) + 360) % 360;
   if (moved) meMarker.setLngLat(pos);
   if (Math.abs(dB) > 0.05 || moved) meMarker.setRotation(anim.brg);
   if (!follow || preview || !anim.cam || t < anim.easeUntil) return;

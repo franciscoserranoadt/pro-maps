@@ -10,8 +10,8 @@ android {
         applicationId 'com.fserrano.promaps'
         minSdk 23
         targetSdk 34
-        versionCode 36
-        versionName '3.14'
+        versionCode 37
+        versionName '3.15'
     }
 
     signingConfigs {

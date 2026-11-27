@@ -1,3 +1,4 @@
-• Mapa más fluido al conducir: el coche y la cámara se mueven suaves entre cada señal del GPS (como Google Maps).
-• Nuevo botón de rutas alternativas mientras navegas (el de la flecha que se divide): enseña las otras rutas y cambias con un toque.
-• Ajustes renovados al estilo Waze: General, Visualización de mapa, Voz y sonido, Navegación, Detalles del vehículo, Alertas y avisos, Música…
+Mapa más fluido al conducir:
+• El coche avanza a velocidad constante entre cada señal del GPS (antes aceleraba y frenaba un poco cada segundo, y se notaban saltitos).
+• En ruta, el coche va por encima de la carretera siguiendo las curvas.
+• El mapa se dibuja más ligero en pantallas muy finas, para que el móvil vaya más suelto.
