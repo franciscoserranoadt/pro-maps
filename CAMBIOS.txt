@@ -1,1 +1,1 @@
-Modo tarjeta de Pro Inicio: arreglada la tarjeta que se quedaba en negro en la pantalla del coche.
+Modo tarjeta de Pro Inicio: Pro Maps avisa cuando ya está colocada en la tarjeta, para que Pro Inicio lo reintente si no aparece.

@@ -873,8 +873,10 @@ public class MainActivity extends Activity implements LocationListener {
                     wm.addView(cardBox, lp);
                     cardOn = true;
                     wakeWeb(true);
+                    CardReceiver.status(this, "es.proinicio.app", "shown");
                 } else {
                     wm.updateViewLayout(cardBox, lp);
+                    CardReceiver.status(this, "es.proinicio.app", "shown");
                 }
             } catch (Exception e) {
                 android.util.Log.d("ProMaps", "card " + e);
