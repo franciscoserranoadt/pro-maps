@@ -12,6 +12,8 @@
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Modo tarjeta: dibujarse encajada en la tarjeta del mapa de Pro Inicio -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
     <!-- Android Auto -->
     <uses-permission android:name="androidx.car.app.NAVIGATION_TEMPLATES" />
@@ -87,6 +89,14 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+        <!-- Modo tarjeta: órdenes de Pro Inicio (mostrar / quitar) -->
+        <receiver
+            android:name=".CardReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.fserrano.promaps.CARD" />
+            </intent-filter>
+        </receiver>
         <!-- Android Auto -->
         <service
             android:name=".CarService"

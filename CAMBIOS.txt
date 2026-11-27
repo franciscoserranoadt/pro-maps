@@ -1,1 +1,1 @@
-Elegir ruta: la tarjeta ahora es más baja (o va a un lado en horizontal) para ver el mapa con las rutas mientras eliges. Las rutas salen en tarjetas que se pasan con el dedo, y las opciones menos usadas están en «Más».
+Modo tarjeta: Pro Maps puede verse y usarse dentro de la tarjeta del mapa de Pro Inicio (buscar destino, gasolineras, radares… todo igual). La primera vez pide el permiso «Mostrar sobre otras apps».

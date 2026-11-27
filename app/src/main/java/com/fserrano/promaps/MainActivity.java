@@ -72,6 +72,16 @@ public class MainActivity extends Activity implements LocationListener {
     private final ExecutorService prefetchPool = Executors.newFixedThreadPool(4);
     private boolean pageReady = false;
 
+    // ---- Modo tarjeta (Pro Maps encajada en la tarjeta del mapa de Pro Inicio) ----
+    private static java.lang.ref.WeakReference<MainActivity> sCurrent = new java.lang.ref.WeakReference<>(null);
+    private android.widget.FrameLayout cardBox;
+    private View cardHolder;
+    private boolean cardOn = false;
+    private int[] pendingCard = null;
+    private boolean fg = false; // Pro Maps está delante
+
+    static MainActivity current() { return sCurrent.get(); }
+
     private static final OkHttpClient HTTP = new OkHttpClient.Builder()
             .connectTimeout(12, TimeUnit.SECONDS)
             .readTimeout(90, TimeUnit.SECONDS)
@@ -83,6 +93,9 @@ public class MainActivity extends Activity implements LocationListener {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         prefs = getSharedPreferences("promaps", MODE_PRIVATE);
+        sCurrent = new java.lang.ref.WeakReference<>(this);
+        Intent first = getIntent();
+        if (first != null && CardReceiver.ACTION.equals(first.getAction())) pendingCard = first.getIntArrayExtra("rect");
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().setStatusBarColor(0xFF0E1A2B);
         getWindow().setNavigationBarColor(0xFF0E1A2B);
@@ -740,6 +753,7 @@ public class MainActivity extends Activity implements LocationListener {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         if (intent == null) return;
+        if (CardReceiver.ACTION.equals(intent.getAction())) { pendingCard = intent.getIntArrayExtra("rect"); return; }
         if (!Updater.ACTION_STATUS.equals(intent.getAction())) { takeIntent(intent); return; }
         int status = intent.getIntExtra(android.content.pm.PackageInstaller.EXTRA_STATUS, -999);
         if (status == android.content.pm.PackageInstaller.STATUS_PENDING_USER_ACTION) {
@@ -758,8 +772,24 @@ public class MainActivity extends Activity implements LocationListener {
     @Override
     protected void onResume() {
         super.onResume();
+        fg = true;
+        if (pendingCard != null) {
+            // Se abrió solo para la tarjeta de Pro Inicio: vuelve atrás y se encaja en la tarjeta
+            final int[] r = pendingCard;
+            pendingCard = null;
+            fg = false;
+            handler.post(() -> { moveTaskToBack(true); cardShow(r, true); });
+        } else if (cardOn) {
+            cardHide(); // Pro Maps a pantalla completa: recupera su pantalla
+        }
         startMedia();
         if (web != null) web.evaluateJavascript("window.onResume&&window.onResume()", null);
+    }
+
+    @Override
+    protected void onPause() {
+        fg = false;
+        super.onPause();
     }
 
     @Override
@@ -777,6 +807,8 @@ public class MainActivity extends Activity implements LocationListener {
 
     @Override
     protected void onDestroy() {
+        cardHide();
+        if (sCurrent.get() == this) sCurrent = new java.lang.ref.WeakReference<>(null);
         try { lm.removeUpdates(this); } catch (Exception ignored) { }
         if (tts != null) tts.shutdown();
         if (tone != null) tone.release();
@@ -789,4 +821,83 @@ public class MainActivity extends Activity implements LocationListener {
     }
 
     private void toast(String msg) { Toast.makeText(this, msg, Toast.LENGTH_LONG).show(); }
+
+    // ---------- Modo tarjeta ----------
+
+    /** Coloca la pantalla de Pro Maps en una ventana encima de la tarjeta de Pro Inicio. r = x, y, ancho, alto, radio (píxeles). */
+    void cardShow(int[] r) { cardShow(r, false); }
+
+    void cardShow(int[] r, boolean force) {
+        handler.post(() -> {
+            if (web == null || isFinishing() || r == null || r.length < 4) return;
+            if (Build.VERSION.SDK_INT >= 23 && !android.provider.Settings.canDrawOverlays(this)) return;
+            if (!force && fg && !cardOn) return; // Pro Maps está delante a pantalla completa: no se toca
+            WindowManager wm = (WindowManager) getApplicationContext().getSystemService(WINDOW_SERVICE);
+            WindowManager.LayoutParams lp = new WindowManager.LayoutParams(r[2], r[3],
+                    Build.VERSION.SDK_INT >= 26 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY : WindowManager.LayoutParams.TYPE_PHONE,
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                            | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+                    android.graphics.PixelFormat.TRANSLUCENT);
+            lp.gravity = android.view.Gravity.TOP | android.view.Gravity.START;
+            lp.x = r[0];
+            lp.y = r[1];
+            lp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN;
+            try {
+                if (!cardOn) {
+                    if (cardBox == null) {
+                        cardBox = new android.widget.FrameLayout(this) {
+                            @Override public boolean dispatchKeyEvent(android.view.KeyEvent e) {
+                                if (e.getKeyCode() == android.view.KeyEvent.KEYCODE_BACK) {
+                                    if (e.getAction() == android.view.KeyEvent.ACTION_UP && web != null)
+                                        web.evaluateJavascript("window.onBack&&window.onBack()", null);
+                                    return true;
+                                }
+                                return super.dispatchKeyEvent(e);
+                            }
+                        };
+                    }
+                    final float rad = r.length > 4 ? r[4] : 0;
+                    cardBox.setOutlineProvider(new android.view.ViewOutlineProvider() {
+                        @Override public void getOutline(View v, android.graphics.Outline o) { o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), rad); }
+                    });
+                    cardBox.setClipToOutline(true);
+                    android.view.ViewGroup parent = (android.view.ViewGroup) web.getParent();
+                    if (parent != null) parent.removeView(web);
+                    cardBox.addView(web, new android.widget.FrameLayout.LayoutParams(-1, -1));
+                    if (cardHolder == null) { cardHolder = new View(this); cardHolder.setBackgroundColor(0xFF0E1A2B); }
+                    setContentView(cardHolder);
+                    wm.addView(cardBox, lp);
+                    cardOn = true;
+                    web.evaluateJavascript("window.onCardMode&&window.onCardMode(true)", null);
+                } else {
+                    wm.updateViewLayout(cardBox, lp);
+                }
+            } catch (Exception e) {
+                android.util.Log.d("ProMaps", "card " + e);
+                cardHide();
+            }
+        });
+    }
+
+    /** Quita la ventana de la tarjeta y devuelve la pantalla a Pro Maps. */
+    void cardHide() {
+        Runnable run = () -> {
+            if (!cardOn) return;
+            cardOn = false;
+            try {
+                WindowManager wm = (WindowManager) getApplicationContext().getSystemService(WINDOW_SERVICE);
+                wm.removeView(cardBox);
+            } catch (Exception ignored) { }
+            try {
+                if (cardBox != null) cardBox.removeView(web);
+                if (web != null) {
+                    android.view.ViewGroup parent = (android.view.ViewGroup) web.getParent();
+                    if (parent != null) parent.removeView(web);
+                    setContentView(web);
+                    web.evaluateJavascript("window.onCardMode&&window.onCardMode(false)", null);
+                }
+            } catch (Exception e) { android.util.Log.d("ProMaps", "cardHide " + e); }
+        };
+        if (Looper.myLooper() == Looper.getMainLooper()) run.run(); else handler.post(run);
+    }
 }
