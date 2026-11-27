@@ -952,6 +952,7 @@ function indexRoutePois(r) {
   r.nCam = out.filter(o => IS_CAMERA(o.p.cat)).length;
   r.nInc = out.length - r.nCam;
 }
+let altsShown = false;
 function drawRoutes() {
   if (!map || !map.getSource('route')) return;
   const line = r => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: r.coords } });
@@ -960,7 +961,9 @@ function drawRoutes() {
     map.getSource('route').setData({ type: 'FeatureCollection', features: [line(active)] });
     const restT = active.time * Math.max(0, active.total - nav.along) / active.total;
     map.getSource('routeAlt').setData({ type: 'FeatureCollection',
-      features: navAlts.map((r, i) => Object.assign(line(r), { properties: { i, label: diff(r.time, restT) } })) });
+      // Las alternativas solo se ven al pulsar el botón de rutas alternativas (o si se ofrece una más rápida)
+      features: navAlts.map((r, i) => Object.assign(line(r), { properties: { i, label: diff(r.time, restT) } }))
+        .filter((f, i) => altsShown || navAlts[i] === altPromptFor) });
   } else if (preview && routes.length) {
     map.getSource('route').setData({ type: 'FeatureCollection', features: [line(routes[selIdx])] });
     map.getSource('routeAlt').setData({ type: 'FeatureCollection',
@@ -3134,7 +3137,7 @@ function maybeOfferAlt() {
   if (best) showAltPrompt(best.a, best.gain);
 }
 function showAltPrompt(a, gain) {
-  altPromptFor = a;
+  altPromptFor = a; drawRoutes();
   const m = Math.round(gain / 60);
   const jam = (active.pois || []).find(o => o.at > nav.along && (o.p.cat === 'retencion' || o.p.cat === 'accidente' || o.p.cat === 'corte'));
   $('#apTitle').textContent = 'Ruta ' + m + ' min más rápida';
@@ -3149,7 +3152,7 @@ function showAltPrompt(a, gain) {
   clearTimeout(altPromptT);
   altPromptT = setTimeout(() => declineAlt(true), 15000);
 }
-function hideAltPrompt() { clearTimeout(altPromptT); altPromptFor = null; $('#altPrompt').classList.add('hidden'); }
+function hideAltPrompt() { clearTimeout(altPromptT); const had = altPromptFor; altPromptFor = null; $('#altPrompt').classList.add('hidden'); if (had) drawRoutes(); }
 function declineAlt(timeout) {
   if (!altPromptFor) return;
   declinedAlts.push(altSig(altPromptFor));
@@ -3212,7 +3215,8 @@ async function altsOverview() {
       (r.delay > 60 ? '<span class="red">🔴 +' + fmtTime(r.delay) + ' atasco</span>' : '') + '</button>';
   });
   h += '</div><button class="btn alt" id="aKeep">Seguir con mi ruta</button>';
-  openSheet(h, () => setFollow(true));
+  altsShown = true; drawRoutes();
+  openSheet(h, () => { altsShown = false; drawRoutes(); setFollow(true); });
   $('#sheet').classList.add('routes'); $('#sheetBg').classList.add('hidden');
   const sh = $('#sheet'), side = innerWidth > innerHeight && innerWidth >= 700;
   map.fitBounds([[a, b], [c, d]], { padding: side ? { top: 40, bottom: 40, left: sh.offsetWidth + 24, right: 90 } : { top: 40, bottom: sh.offsetHeight + 20, left: 30, right: 80 },
