@@ -223,6 +223,7 @@ public class CarService extends CarAppService {
                     @Override public void onPageFinished(WebView v, String url) { sendArea(); }
                 });
                 web.addJavascriptInterface(new Bridge(), "Nativo");
+                web.addJavascriptInterface(new ProSync.Js(getCarContext(), web), "ProSync");
                 pres.setContentView(web);
                 pres.show();
                 web.loadUrl("file:///android_asset/index.html?car=1");

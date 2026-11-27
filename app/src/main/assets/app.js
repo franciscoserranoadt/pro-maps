@@ -501,8 +501,7 @@ async function boot() {
   setTimeout(() => loadFuel(false), 2500);
   setTimeout(() => loadZbe(false), 5000);
   restorePark(); tripRestore();
-  setTimeout(syncPoll, 3000); setInterval(syncPoll, 120000);
-  setTimeout(pushState, 9000);
+  setTimeout(syncPoll, 3000);
   updateHome();
   setTimeout(() => { if (N && N.mediaState) window.onMedia(N.mediaState()); }, 2000);
   addEventListener('resize', () => map && setTimeout(() => map.resize(), 100));
@@ -1631,7 +1630,7 @@ function settingsPage(k) {
     tg('gas', '⛽ Gasolineras con precio en el mapa') +
     tg('parkNear', '🅿️ Aparcamientos cerca del destino', 'Un botón pequeño al acercarte') +
     sec('¿Dónde aparqué?') +
-    btn('bSync', '📲 Vincular móvil y pantalla del coche' + (cfg.syncCode ? ' ✅' : ''));
+    btn('bSync', '📲 Vincular móvil y pantalla del coche' + (window.PS && PS.linked() ? ' ✅' : ''));
   if (k === 'offline') h +=
     tg('offlineRoute', '📥 Guardar el mapa de cada ruta', 'Al empezar una ruta se descarga el mapa del camino') +
     btn('bZone', '📥 Descargar el mapa de mi zona (30 km)') + btn('bCache', '🗂️ Mapa guardado en el móvil');
@@ -2207,18 +2206,18 @@ function restorePark() { drawPark(); }
 function savePark(pos, manual, from) {
   park = { lon: pos[0], lat: pos[1], t: Date.now(), dev: from ? 'otro' : devId };
   store.set('park', park); drawPark();
-  if (!from) syncPush();
+  if (!from && window.PS) PS.changed('park', 500);
   if (manual) { toast('🅿️ Aparcamiento guardado'); }
   if (from) toast('🅿️ Ubicación de tu coche recibida' + (from === 'sync' ? ' desde el otro dispositivo' : ''), 5000);
 }
-function clearPark() { park = null; store.set('park', null); store.set('parkClearedAt', Date.now()); drawPark(); syncPush(true); }
+function clearPark() { park = null; store.set('park', null); store.set('parkClearedAt', Date.now()); drawPark(); if (window.PS) PS.changed('park', 500); }
 function parkText() {
   return '🅿️ Mi coche está aparcado aquí: https://maps.google.com/?q=' + park.lat.toFixed(6) + ',' + park.lon.toFixed(6) + ' (Pro Maps)';
 }
 function arrivedPark() {
   if (!me) return;
   savePark(me, false);
-  const paired = !!cfg.syncCode;
+  const paired = !!(window.PS && PS.linked());
   showNotice('🅿️', 'Aparcamiento guardado', paired ? 'Ya lo tienes también en el otro dispositivo vinculado' : 'Para verlo en el móvil, envíatelo o vincula los dispositivos en Ajustes',
     paired ? null : 'Enviar por WhatsApp', paired ? null : () => N && N.share(parkText(), true), 'Vale', 15000);
 }
@@ -2236,67 +2235,39 @@ function parkSheet() {
   $('#pkShare').onclick = () => N && N.share(parkText(), false);
   $('#pkDel').onclick = () => { closeSheet(); clearPark(); toast('Aparcamiento borrado'); };
 }
-// Sincronización: canal privado en ntfy.sh (gratis, sin cuenta). Los mensajes se guardan 12 horas.
-const syncTopic = () => cfg.syncCode ? 'promaps-' + cfg.syncCode.toLowerCase() + '-p' : null;
-function syncPush(cleared) {
-  const t = syncTopic(); if (!t || !N || !N.post) return;
-  const msg = JSON.stringify({ type: cleared ? 'unpark' : 'park', lon: park && park.lon, lat: park && park.lat, t: Date.now(), dev: devId });
-  const id = 'r' + (++reqN); pend[id] = { res: () => { }, rej: e => console.log('sync ' + e.message) };
-  N.post(id, 'https://ntfy.sh/' + t, msg, JSON.stringify({ Title: 'Pro Maps', Tags: 'car' }));
-}
-async function syncPoll() {
-  const t = syncTopic(); if (!t) return;
+// Sincronización móvil ⇄ coche con el «Código Pro» (prosync.js): un solo código para todas las apps Pro.
+// Dos canales cifrados en ntfy.sh: «park» (dónde está aparcado el coche) y «maps» (ajustes, Casa/Trabajo,
+// favoritos y rutas guardadas). Gana el último cambio.
+(function migrarSync() {
   try {
-    const txt = await get('https://ntfy.sh/' + t + '/json?poll=1&since=12h');
-    let last = null;
-    const parts = {};
-    for (const line of txt.split('\n')) {
-      if (!line.trim()) continue;
-      try {
-        const m = JSON.parse(line); if (m.event !== 'message') continue; const o = JSON.parse(m.message);
-        if (o.dev === devId) continue;
-        if (o.type === 'state') { (parts[o.t] = parts[o.t] || { n: o.n, got: {} }).got[o.i] = o.d; continue; }
-        if (!last || o.t > last.t) last = o;
-      } catch (e) { }
+    if (!localStorage.getItem('ps_t_maps') && store.get('stateT', 0)) localStorage.setItem('ps_t_maps', String(store.get('stateT', 0)));
+    const pt = park ? park.t : store.get('parkClearedAt', 0);
+    if (!localStorage.getItem('ps_t_park') && pt) localStorage.setItem('ps_t_park', String(pt));
+  } catch (e) { }
+  if (cfg.syncCode && window.PS) { PS.legacy(cfg.syncCode, 2); cfg.syncCode = ''; store.quiet = true; saveCfg(); store.quiet = false; }
+})();
+function syncPoll() { if (window.PS) PS.resume(); }
+if (window.PS) {
+  PS.register('park', {
+    get: () => ({ park: park ? { lon: park.lon, lat: park.lat, t: park.t } : null }),
+    apply: (d) => {
+      if (d && d.park) {
+        park = { lon: d.park.lon, lat: d.park.lat, t: d.park.t, dev: 'otro' }; store.set('park', park); drawPark();
+        toast('🅿️ Tu coche se ha aparcado (desde el otro dispositivo)', 5000);
+      } else if (park) { park = null; store.set('park', null); store.set('parkClearedAt', Date.now()); drawPark(); }
     }
-    applyRemoteState(parts);
-    if (!last) return;
-    const mine = park ? park.t : (store.get('parkClearedAt', 0));
-    if (last.t <= mine || last.t <= store.get('syncSeen', 0)) return;
-    store.set('syncSeen', last.t);
-    if (last.type === 'unpark') { if (park) { park = null; store.set('park', null); drawPark(); } return; }
-    park = { lon: last.lon, lat: last.lat, t: last.t, dev: 'otro' }; store.set('park', park); drawPark();
-    toast('🅿️ Tu coche se ha aparcado (desde el otro dispositivo)', 5000);
-  } catch (e) { console.log('sync poll ' + e.message); }
+  });
+  PS.register('maps', { get: stateSnapshot, apply: applyRemoteState, enabled: () => !!cfg.syncSettings });
 }
 
 /* ====================== Ajustes sincronizados entre dispositivos ====================== */
-let statePushT = null;
-function stateChanged() {
-  store.quiet = true; store.set('stateT', Date.now()); store.quiet = false;
-  clearTimeout(statePushT); statePushT = setTimeout(pushState, 4000);
-}
+function stateChanged() { if (window.PS) PS.changed('maps', 4000); }
 function stateSnapshot() {
   const c = {}; for (const k in cfg) if (!LOCAL_CFG[k]) c[k] = cfg[k];
   return { cfg: c, favs: store.get('favs', {}), favList: store.get('favList', []), savedRoutes: store.get('savedRoutes', []) };
 }
-/** Envía los ajustes en trozos (ntfy admite mensajes de hasta 4 KB) */
-function pushState() {
-  const t = syncTopic(); if (!t || !cfg.syncSettings || !N || !N.post) return;
-  const ts = store.get('stateT', 0); if (!ts) return;
-  const data = JSON.stringify(stateSnapshot()), size = 3000, n = Math.ceil(data.length / size);
-  for (let i = 0; i < n; i++) {
-    const id = 'r' + (++reqN); pend[id] = { res: () => { }, rej: e => console.log('sync ajustes ' + e.message) };
-    N.post(id, 'https://ntfy.sh/' + t, JSON.stringify({ type: 'state', t: ts, i, n, d: data.slice(i * size, (i + 1) * size), dev: devId }), '{}');
-  }
-}
-function applyRemoteState(parts) {
-  if (!cfg.syncSettings) return;
-  const mine = store.get('stateT', 0);
-  const ts = Object.keys(parts).map(Number).filter(x => x > mine && Object.keys(parts[x].got).length === parts[x].n).sort((a, b) => b - a)[0];
-  if (!ts) return;
-  let st;
-  try { const p = parts[ts]; st = JSON.parse(Array.from({ length: p.n }, (_, i) => p.got[i]).join('')); } catch (e) { return; }
+function applyRemoteState(st) {
+  if (!st || !st.cfg) return;
   const oldStyle = cfg.style, oldDark = cfg.darkLvl, oldKey = cfg.tomtom;
   store.quiet = true;
   for (const k in st.cfg) if (!LOCAL_CFG[k]) cfg[k] = st.cfg[k];
@@ -2304,7 +2275,6 @@ function applyRemoteState(parts) {
   favs = st.favs || {}; store.set('favs', favs);
   favList = st.favList || []; store.set('favList', favList);
   store.set('savedRoutes', st.savedRoutes || []);
-  store.set('stateT', ts);
   store.quiet = false;
   // aplicar en pantalla
   if (cfg.style !== oldStyle || cfg.darkLvl !== oldDark || cfg.tomtom !== oldKey) applyStyle(true);
@@ -2324,37 +2294,15 @@ window.onCardMode = (on) => {
   [50, 400, 1200].forEach((ms) => setTimeout(() => { if (map) { map.resize(); map.triggerRepaint(); if (follow && me) moveCamera(); } }, ms));
 };
 function syncSheet() {
-  const code = cfg.syncCode;
   let h = '<div class="sTitle">📲 Vincular dispositivos</div><div class="sSub">Vincula la pantalla del coche y el móvil: cuando aparques con la pantalla del coche, ' +
-    'la ubicación del coche aparecerá en el móvil (botón «🅿️ Mi coche»). Y si quieres, los ajustes, Casa, Trabajo, favoritos y rutas guardadas serán iguales en los dos.</div>';
-  if (code) h += '<div class="muted">Código de vinculación de este dispositivo:</div><div class="code">' + esc(code.slice(0, 4) + '-' + code.slice(4)) + '</div>' +
-    '<div class="muted" style="margin-bottom:10px">Escribe este mismo código en el otro dispositivo (Ajustes → Vincular). Si ya lo has hecho, están vinculados.</div>' +
+    'la ubicación del coche aparecerá en el móvil (botón «🅿️ Mi coche»). Y si quieres, los ajustes, Casa, Trabajo, favoritos y rutas guardadas serán iguales en los dos.</div>' +
+    '<div id="psHold"></div>' +
     '<div class="set"><label>⚙️ Sincronizar también los ajustes<small>Ajustes, Casa y Trabajo, favoritos y rutas guardadas. El zoom y el tamaño del icono se quedan como los tengas en cada pantalla.</small></label>' +
     '<input type="checkbox" id="sySet"' + (cfg.syncSettings ? ' checked' : '') + '></div>' +
-    '<button class="btn alt" id="syNow">🔄 Enviar mis ajustes ahora al otro dispositivo</button>' +
-    '<button class="btn red" id="syOff">Desvincular</button>';
-  else h += '<button class="btn" id="syNew">➕ Crear un código nuevo</button><div class="sec">O escribe el código del otro dispositivo</div>' +
-    '<input class="inl" id="syIn" maxlength="9" placeholder="Por ejemplo: K7PQ-M2XD" autocapitalize="characters"><button class="btn alt" id="syJoin">Vincular</button>';
-  h += '<div class="muted" style="margin-top:10px">Funciona gratis a través de ntfy.sh, un servicio público de avisos. Solo viaja la posición del coche, en un canal que solo conoce quien tiene el código, y se borra a las 12 horas. ' +
-    'Si abres la app del móvil más tarde de esas 12 horas, envíatela por WhatsApp desde la pantalla del coche (🅿️ Mi coche → Compartir).</div>';
+    '<div class="muted" style="margin-top:10px">Si abres la app del móvil más tarde de 12 horas, envíate el aparcamiento por WhatsApp desde la pantalla del coche (🅿️ Mi coche → Compartir).</div>';
   openSheet(h);
-  if (code) {
-    $('#syOff').onclick = () => { cfg.syncCode = ''; saveCfg(); syncSheet(); toast('Desvinculado'); };
-    $('#sySet').onchange = e => { cfg.syncSettings = e.target.checked; saveCfg(); if (cfg.syncSettings) syncPoll(); };
-    $('#syNow').onclick = () => { store.quiet = true; store.set('stateT', Date.now()); store.quiet = false; pushState(); toast('📤 Ajustes enviados. El otro dispositivo los recibe al abrir Pro Maps (o en 2 minutos si ya está abierta).', 5000); };
-  }
-  else {
-    $('#syNew').onclick = () => {
-      const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let c = '';
-      for (let i = 0; i < 8; i++) c += A[Math.floor(Math.random() * A.length)];
-      cfg.syncCode = c; saveCfg(); syncSheet();
-    };
-    $('#syJoin').onclick = () => {
-      const c = $('#syIn').value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-      if (c.length !== 8) { toast('El código tiene 8 letras o números'); return; }
-      cfg.syncCode = c; saveCfg(); toast('✅ Vinculado'); syncPoll(); syncSheet();
-    };
-  }
+  if (window.PS) $('#psHold').appendChild(PS.box({ toast: (m) => toast(m, 4000), what: 'dónde has aparcado y, si lo activas abajo, los ajustes, Casa, Trabajo, favoritos y rutas guardadas.' }));
+  $('#sySet').onchange = e => { cfg.syncSettings = e.target.checked; saveCfg(); if (cfg.syncSettings) syncPoll(); };
 }
 
 /* ====================== Zonas de Bajas Emisiones ====================== */

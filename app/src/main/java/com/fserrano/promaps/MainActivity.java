@@ -144,6 +144,7 @@ public class MainActivity extends Activity implements LocationListener {
             }
         });
         web.addJavascriptInterface(new Bridge(), "Nativo");
+        web.addJavascriptInterface(new ProSync.Js(this, web), "ProSync");
         web.setOverScrollMode(View.OVER_SCROLL_NEVER);
         setContentView(web);
         web.loadUrl("file:///android_asset/index.html");

@@ -28,6 +28,14 @@
         </intent>
     </queries>
 
+    <!-- Las demás apps Pro, para pasarles el Código Pro -->
+    <queries>
+        <package android:name="es.proradio.app" />
+        <package android:name="es.proinicio.app" />
+        <package android:name="es.progaraje.app" />
+        <package android:name="es.proobd.app" />
+    </queries>
+
     <application
         android:allowBackup="true"
         android:usesCleartextTraffic="true"
@@ -108,5 +116,15 @@
         </service>
         <meta-data android:name="com.google.android.gms.car.application" android:resource="@xml/automotive_app_desc" />
         <meta-data android:name="androidx.car.app.minCarApiLevel" android:value="1" />
+
+        <!-- Código Pro: recibe el código de vinculación de las demás apps Pro -->
+        <receiver
+            android:name=".SyncReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="es.pro.SYNC_CODE" />
+                <action android:name="es.pro.SYNC_ASK" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

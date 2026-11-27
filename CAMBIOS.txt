@@ -1,1 +1,3 @@
-Las rutas alternativas (en morado) ya no salen todo el rato mientras navegas: solo aparecen al pulsar el botón de rutas alternativas (o cuando Pro Maps te ofrece una más rápida).
+Nuevo «Código Pro»: un solo código para vincular el móvil y el coche en TODAS las apps Pro (Maps, Radio, Inicio, Garaje y OBD). Lo pones una vez en cualquier app Pro y las demás se vinculan solas.
+Si ya tenías Pro Maps vinculada, no tienes que hacer nada: tu código de siempre pasa a ser el Código Pro.
+Ahora los datos (aparcamiento, ajustes, favoritos y rutas) viajan cifrados: solo tus aparatos pueden leerlos.
