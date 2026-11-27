@@ -1,3 +1,1 @@
-Nuevo «Código Pro»: un solo código para vincular el móvil y el coche en TODAS las apps Pro (Maps, Radio, Inicio, Garaje y OBD). Lo pones una vez en cualquier app Pro y las demás se vinculan solas.
-Si ya tenías Pro Maps vinculada, no tienes que hacer nada: tu código de siempre pasa a ser el Código Pro.
-Ahora los datos (aparcamiento, ajustes, favoritos y rutas) viajan cifrados: solo tus aparatos pueden leerlos.
+Arreglado: la línea de la ruta ahora sí va por encima de la calzada y redondeada en curvas y rotondas (en la 3.16 el ajuste a las calles fallaba y se quedaba la línea de TomTom).

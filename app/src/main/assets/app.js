@@ -198,7 +198,7 @@ async function matchToRoads(r) {
   try {
     const j = await Promise.race([
       postJSON('https://valhalla1.openstreetmap.de/trace_route', { encoded_polyline: encode6(old), shape_match: 'map_snap', costing: 'auto',
-        directions_options: { units: 'kilometers', directions_type: 'none' }, trace_options: { search_radius: 30 } }),
+        directions_options: { units: 'kilometers', directions_type: 'none' } }),
       new Promise((_, rej) => setTimeout(() => rej(new Error('tarda')), 7000))]);
     let nc = [];
     for (const leg of (j.trip && j.trip.legs) || []) { const pts = decode6(leg.shape); if (nc.length && pts.length) pts.shift(); nc = nc.concat(pts); }
@@ -206,7 +206,8 @@ async function matchToRoads(r) {
     const cc = [0];
     for (let i = 1; i < nc.length; i++) cc.push(cc[i - 1] + dist(nc[i - 1], nc[i]));
     const nT = cc[cc.length - 1];
-    if (nT < oT * 0.85 || nT > oT * 1.15) return false; // no cuadra: mejor dejar la de TomTom
+    const ref = r.len > 0 ? r.len : oT; // longitud real que da TomTom
+    if (nT < ref * 0.8 || nT > ref * 1.25 + 150) return false; // no cuadra: mejor dejar la de TomTom
     // índice antiguo -> índice nuevo, por la proporción recorrida
     const remap = i => { const f = oc[Math.min(i, oc.length - 1)] / oT * nT; let lo = 0, hi = cc.length - 1;
       while (hi - lo > 1) { const m = (lo + hi) >> 1; if (cc[m] <= f) lo = m; else hi = m; } return lo; };
