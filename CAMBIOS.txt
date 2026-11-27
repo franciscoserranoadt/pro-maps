@@ -1,1 +1,3 @@
-Modo tarjeta de Pro Inicio: Pro Maps avisa cuando ya está colocada en la tarjeta, para que Pro Inicio lo reintente si no aparece.
+• Mapa más fluido al conducir: el coche y la cámara se mueven suaves entre cada señal del GPS (como Google Maps).
+• Nuevo botón de rutas alternativas mientras navegas (el de la flecha que se divide): enseña las otras rutas y cambias con un toque.
+• Ajustes renovados al estilo Waze: General, Visualización de mapa, Voz y sonido, Navegación, Detalles del vehículo, Alertas y avisos, Música…

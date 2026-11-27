@@ -565,3 +565,43 @@ body.picking-route #topBar,body.picking-route #home,body.picking-route #rail .gr
   #sheet.routes .rActs .btn{white-space:nowrap;font-size:17px;padding-left:6px;padding-right:6px}
 }
 .rActs .btn{white-space:nowrap}
+
+/* =================== Ajustes al estilo Waze (con los colores oscuros de Pro Maps) =================== */
+#sheet.wz{top:calc(10px + var(--safe-t));max-height:none;padding-top:0}
+#sheet.wz .grab{display:none}
+#sheet.wz #sheetX{top:10px}
+.wHead{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:14px;background:var(--panel);margin:0 -16px 6px;padding:12px 70px 12px 14px;border-bottom:1px solid #22385a}
+.wHead b{font-size:22px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wBack{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#e6ecf5;flex:none}
+.wBack svg{width:26px;height:26px}
+.wBack:active{background:var(--panel2)}
+.wSec{font-size:14px;color:var(--sub);font-weight:600;margin:18px 6px 8px;text-transform:none;letter-spacing:0}
+.wSec.sp{margin:8px 0 0}
+.wGrp{background:var(--panel2);border-radius:18px;overflow:hidden}
+.wRow{display:flex;align-items:center;gap:16px;padding:12px 14px;min-height:68px}
+.wRow + .wRow{border-top:1px solid #22385a}
+.wRow:active{background:#284069}
+.wIc{width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;flex:none}
+.wIc svg{width:24px;height:24px}
+.wT{flex:1;font-size:18px;font-weight:600;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wChev{font-size:26px;color:var(--sub);line-height:1}
+.wEm{font-size:28px;width:46px;text-align:center;flex:none}
+.wChk{font-size:24px;color:#29b6f6;font-weight:900}
+.wVer{text-align:center;color:var(--sub);font-size:14px;margin:18px 0 6px}
+.wInfo{display:flex;flex-direction:column;align-items:center;gap:4px;margin:10px 0 14px}
+.wInfo b{font-size:22px}.wInfo span{color:var(--sub)}
+#sheet.wz .set{padding:14px 6px;border-bottom:1px solid #22385a}
+#sheet.wz .set label{font-size:17px;font-weight:600}
+#sheet.wz .set small{font-weight:400}
+#sheet.wz .set.setcol select{background:transparent;border:0;padding:4px 0 0;color:var(--sub);font-size:15px;-webkit-appearance:none;appearance:none}
+#sheet.wz .set input[type=checkbox]{-webkit-appearance:none;appearance:none;width:52px;height:30px;border-radius:15px;background:#3a4a63;position:relative;flex:none;transition:background .2s;cursor:pointer}
+#sheet.wz .set input[type=checkbox]::after{content:'';position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#cfd8e6;transition:left .2s,background .2s}
+#sheet.wz .set input[type=checkbox]:checked{background:#1e88e5}
+#sheet.wz .set input[type=checkbox]:checked::after{left:25px;background:#fff}
+.seg.mini{margin:0;flex:none;border-radius:16px;padding:3px}
+.seg.mini button{flex:none;padding:8px 16px;font-size:15px;border-radius:13px}
+#sheet.wz .btn{margin-top:12px}
+@media (orientation: landscape) and (min-width: 700px) {
+  #sheet.wz{left:auto;right:12px;width:470px;top:12px}
+}
+#sheet.wz{z-index:40}
