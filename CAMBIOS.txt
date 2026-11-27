@@ -1,4 +1,2 @@
-Mapa más fluido al conducir:
-• El coche avanza a velocidad constante entre cada señal del GPS (antes aceleraba y frenaba un poco cada segundo, y se notaban saltitos).
-• En ruta, el coche va por encima de la carretera siguiendo las curvas.
-• El mapa se dibuja más ligero en pantallas muy finas, para que el móvil vaya más suelto.
+La línea de la ruta ahora va por encima de la calzada y redondeada en curvas y rotondas.
+La ruta de TomTom (con tráfico) se «pega» a las calles de nuestro mapa; antes iba un poco desplazada y hacía esquinas.
