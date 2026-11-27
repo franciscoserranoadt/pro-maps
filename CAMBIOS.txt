@@ -1,1 +1,1 @@
-Modo tarjeta: Pro Maps puede verse y usarse dentro de la tarjeta del mapa de Pro Inicio (buscar destino, gasolineras, radares… todo igual). La primera vez pide el permiso «Mostrar sobre otras apps».
+Modo tarjeta de Pro Inicio: arreglada la tarjeta que se quedaba en negro en la pantalla del coche.

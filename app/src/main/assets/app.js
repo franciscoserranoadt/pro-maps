@@ -2141,6 +2141,11 @@ function applyRemoteState(parts) {
 }
 
 window.onResume = () => { syncPoll(); };
+/** Modo tarjeta (Pro Inicio): al cambiar de ventana se vuelve a ajustar y pintar el mapa */
+window.onCardMode = (on) => {
+  document.body.classList.toggle('cardMode', !!on);
+  [50, 400, 1200].forEach((ms) => setTimeout(() => { if (map) { map.resize(); map.triggerRepaint(); if (follow && me) moveCamera(); } }, ms));
+};
 function syncSheet() {
   const code = cfg.syncCode;
   let h = '<div class="sTitle">📲 Vincular dispositivos</div><div class="sSub">Vincula la pantalla del coche y el móvil: cuando aparques con la pantalla del coche, ' +

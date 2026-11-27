@@ -856,11 +856,15 @@ public class MainActivity extends Activity implements LocationListener {
                             }
                         };
                     }
-                    final float rad = r.length > 4 ? r[4] : 0;
-                    cardBox.setOutlineProvider(new android.view.ViewOutlineProvider() {
-                        @Override public void getOutline(View v, android.graphics.Outline o) { o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), rad); }
-                    });
-                    cardBox.setClipToOutline(true);
+                    cardBox.removeAllViews();
+                    cardBox.setBackgroundColor(0xFF0E1A2B);
+                    // Texto de control: solo se ve si la página de Pro Maps no llega a dibujarse
+                    android.widget.TextView hint = new android.widget.TextView(this);
+                    hint.setText("Pro Maps: preparando la tarjeta…");
+                    hint.setTextColor(0xFFDDE6F5);
+                    hint.setTextSize(18);
+                    hint.setGravity(android.view.Gravity.CENTER);
+                    cardBox.addView(hint, new android.widget.FrameLayout.LayoutParams(-1, -1));
                     android.view.ViewGroup parent = (android.view.ViewGroup) web.getParent();
                     if (parent != null) parent.removeView(web);
                     cardBox.addView(web, new android.widget.FrameLayout.LayoutParams(-1, -1));
@@ -868,7 +872,7 @@ public class MainActivity extends Activity implements LocationListener {
                     setContentView(cardHolder);
                     wm.addView(cardBox, lp);
                     cardOn = true;
-                    web.evaluateJavascript("window.onCardMode&&window.onCardMode(true)", null);
+                    wakeWeb(true);
                 } else {
                     wm.updateViewLayout(cardBox, lp);
                 }
@@ -877,6 +881,19 @@ public class MainActivity extends Activity implements LocationListener {
                 cardHide();
             }
         });
+    }
+
+    /** Tras cambiar de ventana, despierta la página y el mapa para que se vuelvan a dibujar. */
+    private void wakeWeb(boolean card) {
+        if (web == null) return;
+        try { web.onResume(); web.resumeTimers(); } catch (Exception ignored) { }
+        web.setVisibility(View.VISIBLE);
+        web.requestLayout();
+        web.invalidate();
+        final String js = "window.onCardMode&&window.onCardMode(" + card + ");window.dispatchEvent(new Event('resize'));";
+        web.evaluateJavascript(js, null);
+        handler.postDelayed(() -> { if (web != null) { web.invalidate(); web.evaluateJavascript(js, null); } }, 500);
+        handler.postDelayed(() -> { if (web != null) { web.invalidate(); web.evaluateJavascript(js, null); } }, 1500);
     }
 
     /** Quita la ventana de la tarjeta y devuelve la pantalla a Pro Maps. */
@@ -894,7 +911,7 @@ public class MainActivity extends Activity implements LocationListener {
                     android.view.ViewGroup parent = (android.view.ViewGroup) web.getParent();
                     if (parent != null) parent.removeView(web);
                     setContentView(web);
-                    web.evaluateJavascript("window.onCardMode&&window.onCardMode(false)", null);
+                    wakeWeb(false);
                 }
             } catch (Exception e) { android.util.Log.d("ProMaps", "cardHide " + e); }
         };
