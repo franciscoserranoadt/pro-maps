@@ -189,33 +189,34 @@ function encode6(coords) {
  * (map matching) y se recolocan las maniobras y los carriles en el nuevo trazado.
  */
 async function matchToRoads(r) {
-  if (!r || r.matched || r.src !== 'TomTom' || !N || !N.post || r.coords.length < 2) return false;
-  r.matched = true;
+  if (!r || r.matched || r.src !== 'TomTom' || r.coords.length < 2) return false;
+  if (!N || !N.post) { r.matchInfo = 'sin conexión nativa'; return false; }
+  r.matched = true; r.matchInfo = 'ajustando…';
   const old = r.coords, oc = [0];
   for (let i = 1; i < old.length; i++) oc.push(oc[i - 1] + dist(old[i - 1], old[i]));
   const oT = oc[oc.length - 1];
-  if (oT < 50 || oT > 190000) return false;
+  if (oT < 50 || oT > 190000) { r.matchInfo = 'ruta demasiado larga para ajustarla'; return false; }
   try {
     const j = await Promise.race([
       postJSON('https://valhalla1.openstreetmap.de/trace_route', { encoded_polyline: encode6(old), shape_match: 'map_snap', costing: 'auto',
         directions_options: { units: 'kilometers', directions_type: 'none' } }),
-      new Promise((_, rej) => setTimeout(() => rej(new Error('tarda')), 7000))]);
+      new Promise((_, rej) => setTimeout(() => rej(new Error('el servidor tarda demasiado')), 12000))]);
     let nc = [];
     for (const leg of (j.trip && j.trip.legs) || []) { const pts = decode6(leg.shape); if (nc.length && pts.length) pts.shift(); nc = nc.concat(pts); }
-    if (nc.length < 2) return false;
+    if (nc.length < 2) { r.matchInfo = 'el servidor no devolvió trazado'; return false; }
     const cc = [0];
     for (let i = 1; i < nc.length; i++) cc.push(cc[i - 1] + dist(nc[i - 1], nc[i]));
     const nT = cc[cc.length - 1];
     const ref = r.len > 0 ? r.len : oT; // longitud real que da TomTom
-    if (nT < ref * 0.8 || nT > ref * 1.25 + 150) return false; // no cuadra: mejor dejar la de TomTom
+    if (nT < ref * 0.8 || nT > ref * 1.25 + 150) { r.matchInfo = 'el ajuste no cuadra (' + Math.round(nT) + ' m frente a ' + Math.round(ref) + ' m)'; return false; } // mejor dejar la de TomTom
     // índice antiguo -> índice nuevo, por la proporción recorrida
     const remap = i => { const f = oc[Math.min(i, oc.length - 1)] / oT * nT; let lo = 0, hi = cc.length - 1;
       while (hi - lo > 1) { const m = (lo + hi) >> 1; if (cc[m] <= f) lo = m; else hi = m; } return lo; };
     r.steps.forEach(s => s.i = remap(s.i));
     (r.lanes || []).forEach(l => { l.i0 = remap(l.i0); l.i1 = remap(l.i1); });
-    r.coords = nc;
+    r.coords = nc; r.matchInfo = 'ok';
     return true;
-  } catch (e) { console.log('ajuste a calles: ' + e.message); return false; }
+  } catch (e) { r.matchInfo = String(e.message || e).slice(0, 80); console.log('ajuste a calles: ' + e.message); return false; }
 }
 /** Para una ruta que ya se está usando: se ajusta a las calles sin cortar el guiado */
 async function matchActive(r) {
@@ -1038,13 +1039,17 @@ function routeSheet() {
       '<span>📷 ' + r.nCam + ' · ⚠️ ' + r.nInc + '</span></button>';
   });
   h += '</div>';
+  { const r = routes[selIdx]; if (r && r.src === 'TomTom' && r.matchInfo && r.matchInfo !== 'ok')
+    h += '<div class="rNote">' + (r.matchInfo === 'ajustando…' ? '⏳ Ajustando la línea a las calles…' : '⚠️ Línea sin ajustar a las calles: ' + esc(r.matchInfo)) + '</div>'; }
   h += '<div class="rActs"><button class="btn" id="rGo">▶ Iniciar</button>' +
     '<button class="rIco" id="rStop" title="Parada">➕<small>Parada</small></button><button class="rIco" id="rGas">⛽<small>Gasolina</small></button>' +
     '<button class="rIco" id="rList">📋<small>Detalles</small></button><button class="rIco" id="rMore">⋯<small>Más</small></button></div>' +
     '<div id="rMoreBox" class="hidden">' +
     (routeMode === 'car' ? '<button class="btn alt" id="rSave">💾 Guardar esta ruta</button>' : '') +
     '<div class="btnrow"><button class="btn alt" id="rFav">⭐ Favorito</button><button class="btn alt" id="rHome">🏠 Casa</button><button class="btn alt" id="rWork">💼 Trabajo</button></div>' +
-    '<div class="muted" style="margin-top:8px">Rutas: ' + (routes[0].src === 'TomTom' ? 'TomTom con tráfico en directo' : 'OpenStreetMap (Valhalla)') + '</div></div>';
+    '<div class="muted" style="margin-top:8px">Rutas: ' + (routes[0].src === 'TomTom' ? 'TomTom con tráfico en directo' +
+      (routes[selIdx].matchInfo === 'ok' ? ' · ✅ ajustada a las calles' : ' · ⚠️ sin ajustar a las calles' + (routes[selIdx].matchInfo ? ': ' + esc(routes[selIdx].matchInfo) : ''))
+      : 'OpenStreetMap (Valhalla)') + ' · v' + esc(N && N.version ? N.version() : '') + '</div></div>';
   openSheet(h, cancelPreview);
   $('#sheet').classList.add('routes'); $('#sheetBg').classList.add('hidden'); document.body.classList.add('picking-route');
   { const c = $('#sheetBody .rCard.sel'); if (c) c.scrollIntoView({ inline: 'center', block: 'nearest' }); }
@@ -1067,7 +1072,11 @@ function routeSheet() {
   $('#rWork').onclick = () => setFav('trabajo', Object.assign({}, dest, { name: 'Trabajo', sub: dest.name }));
   document.querySelectorAll('#sheetBody [data-xs]').forEach(b => b.onclick = ev => { ev.stopPropagation(); stops.splice(+b.dataset.xs, 1); goTo(dest, true); });
 }
-function selectRoute(i) { selIdx = +i; drawRoutes(); routeSheet(); }
+function selectRoute(i) {
+  selIdx = +i; drawRoutes(); routeSheet();
+  const r = routes[selIdx];
+  if (r && !r.matched) matchToRoads(r).then(ok => { if (ok && preview && routes[selIdx] === r) { prepRoute(r); drawRoutes(); routeSheet(); } else if (preview) routeSheet(); });
+}
 function stepsSheet(r, fromNav) {
   let h = '<div class="sTitle">Indicaciones</div>';
   const items = r.steps.map(s => ({ at: s.at, html: rowHtml(-1, ARROW[s.kind] || '⬆', s.text, s.street, fmtDist(s.at)) }))

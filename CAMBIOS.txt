@@ -1,1 +1,3 @@
-Arreglado: la línea de la ruta ahora sí va por encima de la calzada y redondeada en curvas y rotondas (en la 3.16 el ajuste a las calles fallaba y se quedaba la línea de TomTom).
+Al elegir ruta, debajo de las tarjetas te avisa si la línea no se ha podido ajustar a las calles y por qué.
+La ruta alternativa que eliges también se ajusta a las calles.
+Más margen de tiempo para ajustar la ruta con conexiones lentas (pantalla del coche).
