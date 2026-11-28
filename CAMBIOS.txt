@@ -1,3 +1,1 @@
-Nuevo: mapas de Mapbox (estilo navegación de día y de noche).
-Se activa en el botón de capas → Opciones del mapa → «Mapbox», pegando tu clave de Mapbox (empieza por pk.).
-Puedes volver cuando quieras a «Waze» o «Pro Maps».
+Arreglado: con los mapas de Mapbox no salían los edificios en 3D.

@@ -1989,7 +1989,10 @@ function addLookLayers() {
     map.addLayer({ id: 'sat', type: 'raster', source: 'sat', paint: { 'raster-opacity': 1 } }, firstLineLayer() || before);
   }
   // Edificios en 3D
-  const src = Object.keys(map.getStyle().sources || {}).find(k => map.getStyle().sources[k].type === 'vector');
+  // La fuente que tiene los edificios (en Mapbox la primera puede ser la del tráfico)
+  const stl = map.getStyle(), bl = (stl.layers || []).find(l => l['source-layer'] === 'building' && l.source);
+  const src = bl ? bl.source : ['composite', 'openmaptiles'].find(k => stl.sources && stl.sources[k]) ||
+    Object.keys(stl.sources || {}).find(k => stl.sources[k].type === 'vector' && !/traffic/.test(k + (stl.sources[k].url || '')));
   // Se quitan los edificios 3D que trae el estilo (en el oscuro salen como losas negras) y se ponen los nuestros
   (map.getStyle().layers || []).filter(l => l.type === 'fill-extrusion').forEach(l => map.removeLayer(l.id));
   const before3d = labelsAfterGeometry();
@@ -2068,13 +2071,13 @@ function b3dPaint() {
     const n = curStyle === 'wzn' || curStyle === 'mbn';
     return { 'fill-extrusion-color': ['interpolate', ['linear'], h, 0, n ? '#2c3950' : '#e6e1d9', 40, n ? '#3a4966' : '#d6d0c6'],
       'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 15, 0, 15.6, h],
-      'fill-extrusion-base': ['interpolate', ['linear'], ['zoom'], 15, 0, 15.6, ['coalesce', ['get', 'render_min_height'], 0]],
+      'fill-extrusion-base': ['interpolate', ['linear'], ['zoom'], 15, 0, 15.6, ['coalesce', ['get', 'render_min_height'], ['get', 'min_height'], 0]],
       'fill-extrusion-opacity': 0.92, 'fill-extrusion-vertical-gradient': true };
   }
   return {
     'fill-extrusion-color': ['interpolate', ['linear'], h, 0, dark ? '#46557a' : '#e4ddd0', 20, dark ? '#55668f' : '#d8cfbf', 60, dark ? '#6b7fab' : '#c9bea9'],
     'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 15, 0, 15.6, h],
-    'fill-extrusion-base': ['interpolate', ['linear'], ['zoom'], 15, 0, 15.6, ['coalesce', ['get', 'render_min_height'], 0]],
+    'fill-extrusion-base': ['interpolate', ['linear'], ['zoom'], 15, 0, 15.6, ['coalesce', ['get', 'render_min_height'], ['get', 'min_height'], 0]],
     'fill-extrusion-opacity': 1,
     'fill-extrusion-vertical-gradient': true
   };
