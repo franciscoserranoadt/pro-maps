@@ -85,7 +85,7 @@ const SYNC_KEYS = { cfg: 1, favs: 1, favList: 1, savedRoutes: 1 };
 /* Ajustes que cada dispositivo guarda a su gusto (dependen de la pantalla) */
 const LOCAL_CFG = { syncCode: 1, zoomLvl: 1, carSize: 1, syncSettings: 1, localView: 1 };
 const DEF = { voice: true, radars: true, semaforos: true, incid: true, reports: true, beep: true,
-  tomtom: '', style: 'auto', tolls: false, highways: false, traffic: false,
+  tomtom: '', mapbox: '', style: 'auto', tolls: false, highways: false, traffic: false,
   fuel: 'g95', gas: true, limit: true, limitWarn: true, ttinc: true,
   b3d: true, wxfx: true, wxchip: true, trees: false, lamps: false, car: 'arrow', carColor: '#33ccff', lanes: true,
   look: 'waze', label: 'c', zbe: true, zbeShow: true, zbeAvoid: false, parkNear: true, syncCode: '', darkLvl: 'mas',
@@ -402,6 +402,9 @@ const STYLE = {
   dark: 'https://tiles.openfreemap.org/styles/dark',
   soft: 'https://tiles.openfreemap.org/styles/positron',
   // Estilo Waze: el mismo mapa (OpenFreeMap), con los colores de Waze de día (wzd) y de noche (wzn)
+  // Mapbox (con la clave del usuario): estilos de navegación de día y de noche
+  mbd: 'mapbox://styles/mapbox/navigation-day-v1',
+  mbn: 'mapbox://styles/mapbox/navigation-night-v1',
   wzd: 'https://tiles.openfreemap.org/styles/liberty',
   wzn: 'https://tiles.openfreemap.org/styles/liberty'
 };
@@ -437,6 +440,8 @@ function sunTimes(lat, lon, date) {
 }
 function wantedStyle() {
   let k = cfg.style;
+  if (window.__mb && (k === 'auto' || k === 'light' || k === 'dark'))
+    return (k === 'dark' || (k === 'auto' && isNight())) ? 'mbn' : 'mbd';
   if (cfg.look === 'waze' && (k === 'auto' || k === 'light' || k === 'dark'))
     return (k === 'dark' || (k === 'auto' && isNight())) ? 'wzn' : 'wzd';
   if (k === 'auto') k = isNight() ? 'dark' : 'light';
@@ -445,6 +450,17 @@ function wantedStyle() {
   return k;
 }
 let curStyle = '';
+const FONT_B = () => window.__mb ? ['DIN Pro Bold', 'Arial Unicode MS Bold'] : ['Noto Sans Bold'];
+const FONT_R = () => window.__mb ? ['DIN Pro Regular', 'Arial Unicode MS Regular'] : ['Noto Sans Regular'];
+/** Mapbox trae los nombres en inglés: se cambian a español (con el local si no hay) */
+function mapboxSpanish() {
+  for (const l of map.getStyle().layers || []) {
+    if (l.type !== 'symbol' || !l.layout || !l.layout['text-field']) continue;
+    const t = JSON.stringify(l.layout['text-field']);
+    if (!/name_en|"name"/.test(t)) continue;
+    try { map.setLayoutProperty(l.id, 'text-field', JSON.parse(t.replace(/"name_en"/g, '"name_es"'))); } catch (e) { }
+  }
+}
 function applyStyle(force) {
   const k = wantedStyle();
   if (!force && k === curStyle) { updateLampGlow(); return; }
@@ -455,7 +471,15 @@ function applyStyle(force) {
 async function boot() {
   const libs = [['https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js', 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css'],
     ['https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js', 'https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css']];
-  for (const [js, css] of libs) {
+  if (cfg.look === 'mapbox' && cfg.mapbox) {
+    try {
+      loadCss('https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css');
+      await loadScript('https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.js');
+      mapboxgl.accessToken = cfg.mapbox;
+      window.maplibregl = window.mapboxgl; window.__mb = true;
+    } catch (e) { console.log('mapbox no carga'); setTimeout(() => toast('No se pudo cargar Mapbox: se usa el mapa normal'), 3000); }
+  }
+  if (!window.__mb) for (const [js, css] of libs) {
     try { loadCss(css); await loadScript(js); break; } catch (e) { console.log('lib ' + js); }
   }
   if (!window.maplibregl) {
@@ -468,7 +492,12 @@ async function boot() {
   styleOk.dark = await Promise.race([get(STYLE.dark).then(() => true, () => false), new Promise(r => setTimeout(() => r(false), 4000))]);
   curStyle = wantedStyle();
   map = new maplibregl.Map({ container: 'map', style: STYLE[curStyle], center: start, zoom: 14, attributionControl: { compact: true },
-    pitchWithRotate: true, dragRotate: true, maxPitch: 70, fadeDuration: 0, pixelRatio: Math.min(window.devicePixelRatio || 1, 2), antialias: false });
+    pitchWithRotate: true, dragRotate: true, maxPitch: 70, fadeDuration: 0, pixelRatio: Math.min(window.devicePixelRatio || 1, 2), antialias: false,
+    ...(window.__mb ? { projection: 'mercator', attributionControl: true } : {}) });
+  if (window.__mb) map.on('error', e => {
+    const m = String(e && e.error && (e.error.status || e.error.message) || '');
+    if (/401|403|token/i.test(m) && !boot.mbErr) { boot.mbErr = 1; toast('La clave de Mapbox no vale. Revísala en Opciones del mapa', 6000); }
+  });
   map.on('style.load', onStyleLoad);
   map.on('error', e => console.log('map error ' + (e && e.error && e.error.message)));
   map.on('dragstart', () => setFollow(false));
@@ -625,6 +654,7 @@ function wazeTheme(night) {
 }
 function onStyleLoad() {
   if (curStyle === 'wzd' || curStyle === 'wzn') wazeTheme(curStyle === 'wzn');
+  if (curStyle === 'mbd' || curStyle === 'mbn') mapboxSpanish();
   brightenDark();
   lightLabels();
   for (const k in CAT) if (!map.hasImage('i_' + k)) map.addImage('i_' + k, makeIcon(CAT[k].e, CAT[k].c), { pixelRatio: 2 });
@@ -660,18 +690,18 @@ function onStyleLoad() {
     layout: { 'icon-image': ['get', 'icon'], 'icon-size': 0.7, 'icon-allow-overlap': false } });
   map.addLayer({ id: 'poisMax', type: 'symbol', source: 'pois', minzoom: 13, filter: ['>', ['get', 'max'], 0],
     layout: { 'text-field': ['to-string', ['get', 'max']], 'text-size': 12, 'text-offset': [0, 1.7], 'text-allow-overlap': true,
-      'text-font': ['Noto Sans Bold'] },
+      'text-font': FONT_B() },
     paint: { 'text-color': '#111', 'text-halo-color': '#fff', 'text-halo-width': 2 } });
   addLookLayers();
   if (!map.hasImage('i_gas')) map.addImage('i_gas', makeIcon('⛽', '#2e7d32'), { pixelRatio: 2 });
   map.addSource('gas', { type: 'geojson', data: empty });
   map.addLayer({ id: 'gas', type: 'symbol', source: 'gas', minzoom: 12, layout: {
       'icon-image': 'i_gas', 'icon-size': 0.75, 'icon-allow-overlap': false,
-      'text-field': ['get', 'p'], 'text-size': 13, 'text-offset': [0, 1.5], 'text-anchor': 'top', 'text-font': ['Noto Sans Bold'],
+      'text-field': ['get', 'p'], 'text-size': 13, 'text-offset': [0, 1.5], 'text-anchor': 'top', 'text-font': FONT_B(),
       'text-allow-overlap': false, visibility: cfg.gas ? 'visible' : 'none' },
     paint: { 'text-color': ['get', 'c'], 'text-halo-color': '#111', 'text-halo-width': 2 } }, 'pois');
   map.addLayer({ id: 'routeAltLabel', type: 'symbol', source: 'routeAlt', layout: { 'symbol-placement': 'line-center', 'text-field': ['get', 'label'],
-      'text-size': 15, 'text-font': ['Noto Sans Bold'], 'text-allow-overlap': true, 'text-ignore-placement': true, 'text-keep-upright': true },
+      'text-size': 15, 'text-font': FONT_B(), 'text-allow-overlap': true, 'text-ignore-placement': true, 'text-keep-upright': true },
     paint: { 'text-color': '#ffffff', 'text-halo-color': '#5b21b6', 'text-halo-width': 3 } });
   refreshPois();
   refreshGas();
@@ -1522,7 +1552,9 @@ function mapOptions() {
     [['std', 'Estándar', 'linear-gradient(160deg,#e9e5dc 0 55%,#cfe3c4 55%)'], ['soft', 'Suave', 'linear-gradient(160deg,#f2f2f2 0 60%,#d9dde3 60%)'],
       ['sat', 'Satélite', 'linear-gradient(160deg,#4a6b3a 0 45%,#7a6a4a 45% 60%,#3c5a2e 60%)']]
       .map(([v, n, bg]) => '<button class="mCard' + (base === v ? ' on' : '') + '" data-base="' + v + '"><div class="pv" style="background:' + bg + '"></div><span>' + n + '</span></button>').join('') + '</div>' +
-    (base === 'std' ? seg('look', [['waze', 'Estilo Waze'], ['pro', 'Estilo Pro Maps']], cfg.look === 'pro' ? 'pro' : 'waze') +
+    (base === 'std' ? seg('look', [['mapbox', 'Mapbox'], ['waze', 'Waze'], ['pro', 'Pro Maps']], cfg.look === 'pro' ? 'pro' : cfg.look === 'mapbox' ? 'mapbox' : 'waze') +
+      (cfg.look === 'mapbox' ? '<div class="set setcol" style="margin:-6px 0 12px"><label>🔑 Clave de Mapbox<small>La de tu cuenta de Mapbox (empieza por pk.)</small></label>' +
+        '<input type="text" id="mbKey" placeholder="pk.…" value="' + esc(cfg.mapbox) + '" autocapitalize="off" autocorrect="off" spellcheck="false"></div>' : '') +
       seg('mode', [['auto', 'Auto'], ['day', 'Día'], ['night', 'Noche']], mode) : '') +
     (cfg.look === 'pro' || base !== 'std' ? '<div class="rangeRow"><span data-ic="sun"></span><input type="range" min="0" max="2" step="1" id="darkRange" value="' + ({ normal: 0, mas: 1, mucho: 2 }[cfg.darkLvl] || 0) + '"><span data-ic="moon"></span><small class="muted" id="darkLbl"></small></div>' : '') +
     '<div class="sec">En el mapa</div><div class="tiles">' +
@@ -1540,7 +1572,13 @@ function mapOptions() {
     const g = b.parentNode.dataset.seg, v = b.dataset.v;
     if (g === 'view') { cfg.persp = v === '3d'; saveCfg(); camZ = null; if (follow && me) moveCamera(); else map.easeTo({ pitch: cfg.persp ? 50 : 0 }); }
     if (g === 'sound') setSound(v);
-    if (g === 'look') { cfg.look = v; saveCfg(); applyStyle(true); }
+    if (g === 'look') {
+      const was = cfg.look; cfg.look = v; saveCfg();
+      // Cambiar entre Mapbox y los otros necesita recargar el mapa (es otro programa de mapas)
+      if ((was === 'mapbox' && window.__mb) || (v === 'mapbox' && cfg.mapbox)) { toast('Cambiando de mapa…'); setTimeout(() => location.reload(), 400); return; }
+      if (v === 'mapbox' && !cfg.mapbox) { mapOptions(); toast('Pega tu clave de Mapbox debajo'); setTimeout(() => { const i = $('#mbKey'); if (i) i.focus(); }, 300); return; }
+      applyStyle(true);
+    }
     if (g === 'mode') { cfg.style = v === 'day' ? 'light' : v === 'night' ? 'dark' : 'auto'; saveCfg(); applyStyle(true); }
     mapOptions();
   });
@@ -1549,6 +1587,11 @@ function mapOptions() {
     cfg.style = v === 'soft' ? 'soft' : v === 'sat' ? (me && (me[0] < -9.5 || me[0] > 4.5 || me[1] < 35.8 || me[1] > 43.9) ? 'satw' : 'sat') : 'auto';
     saveCfg(); applyStyle(true); mapOptions();
   });
+  if ($('#mbKey')) $('#mbKey').onchange = e => {
+    const k = e.target.value.trim(); cfg.mapbox = k; saveCfg();
+    if (/^pk\./.test(k)) { toast('Clave guardada. Cargando Mapbox…'); setTimeout(() => location.reload(), 600); }
+    else if (k) toast('La clave de Mapbox empieza por «pk.». Revísala');
+  };
   if ($('#darkRange')) $('#darkRange').oninput = () => { cfg.darkLvl = ['normal', 'mas', 'mucho'][+$('#darkRange').value]; saveCfg(); lbl(); applyStyle(true); };
   document.querySelectorAll('#sheetBody [data-t]').forEach(b => b.onclick = () => {
     const k = b.dataset.t;
@@ -2012,7 +2055,7 @@ function addPoiLabels(src) {
   iconExpr.push('poi_dot');
   map.addLayer({ id: 'poiNames', type: 'symbol', source: src, 'source-layer': 'poi', minzoom: 17,
     filter: ['has', 'name'],
-    layout: { 'icon-image': iconExpr, 'icon-size': 0.9, 'text-field': ['coalesce', ['get', 'name:es'], ['get', 'name']], 'text-font': ['Noto Sans Regular'],
+    layout: { 'icon-image': iconExpr, 'icon-size': 0.9, 'text-field': ['coalesce', ['get', 'name:es'], ['get', 'name']], 'text-font': FONT_R(),
       'text-size': 12, 'text-anchor': 'left', 'text-offset': [0.9, 0], 'text-max-width': 9, 'symbol-sort-key': ['coalesce', ['get', 'rank'], 99],
       'text-optional': true },
     paint: { 'text-color': '#dfe6f3', 'text-halo-color': '#1b2333', 'text-halo-width': 1.5 } });
@@ -2021,8 +2064,8 @@ function addPoiLabels(src) {
 function b3dPaint() {
   const dark = curStyle === 'dark' || !!SAT[cfg.style];
   const h = ['coalesce', ['get', 'render_height'], ['get', 'height'], 6];
-  if (curStyle === 'wzd' || curStyle === 'wzn') {
-    const n = curStyle === 'wzn';
+  if (/^(wz|mb)/.test(curStyle)) {
+    const n = curStyle === 'wzn' || curStyle === 'mbn';
     return { 'fill-extrusion-color': ['interpolate', ['linear'], h, 0, n ? '#2c3950' : '#e6e1d9', 40, n ? '#3a4966' : '#d6d0c6'],
       'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 15, 0, 15.6, h],
       'fill-extrusion-base': ['interpolate', ['linear'], ['zoom'], 15, 0, 15.6, ['coalesce', ['get', 'render_min_height'], 0]],

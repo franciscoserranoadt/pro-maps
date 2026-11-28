@@ -605,3 +605,9 @@ body.picking-route #topBar,body.picking-route #home,body.picking-route #rail .gr
   #sheet.wz{left:auto;right:12px;width:470px;top:12px}
 }
 #sheet.wz{z-index:40}
+/* Mapbox usa otros nombres de clase */
+.mapboxgl-popup-content{background:var(--panel)!important;color:var(--txt);border-radius:14px!important;padding:12px 14px!important;font-size:15px}
+.mapboxgl-popup-tip{border-top-color:var(--panel)!important;border-bottom-color:var(--panel)!important}
+.mapboxgl-popup-close-button{color:#fff;font-size:20px;padding:0 6px}
+.mapboxgl-ctrl-attrib{font-size:10px}
+html.car .mapboxgl-ctrl-bottom-right,html.car .mapboxgl-ctrl-bottom-left{display:none!important}
