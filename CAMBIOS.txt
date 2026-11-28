@@ -1,2 +1,1 @@
-Nuevo estilo de mapa tipo Waze (de día claro y limpio, de noche azul oscuro): autovías en amarillo/naranja, calles blancas con borde gris, parques verdes y agua azul.
-Se elige en el botón de capas → Opciones del mapa → «Estilo Waze» o «Estilo Pro Maps» (el de antes).
+Arreglado en la pantalla del coche: la línea de la ruta no se ajustaba a las calles (salía «Handshake failed»). La app ahora usa conexiones seguras modernas también en pantallas con Android antiguo.

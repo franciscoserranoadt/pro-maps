@@ -197,10 +197,18 @@ async function matchToRoads(r) {
   const oT = oc[oc.length - 1];
   if (oT < 50 || oT > 190000) { r.matchInfo = 'ruta demasiado larga para ajustarla'; return false; }
   try {
-    const j = await Promise.race([
-      postJSON('https://valhalla1.openstreetmap.de/trace_route', { encoded_polyline: encode6(old), shape_match: 'map_snap', costing: 'auto',
-        directions_options: { units: 'kilometers', directions_type: 'none' } }),
-      new Promise((_, rej) => setTimeout(() => rej(new Error('el servidor tarda demasiado')), 12000))]);
+    const body = { encoded_polyline: encode6(old), shape_match: 'map_snap', costing: 'auto', directions_options: { units: 'kilometers', directions_type: 'none' } };
+    const url = 'https://valhalla1.openstreetmap.de/trace_route';
+    const slow = ms => new Promise((_, rej) => setTimeout(() => rej(new Error('el servidor tarda demasiado')), ms));
+    let j;
+    try { j = await Promise.race([postJSON(url, body), slow(12000)]); }
+    catch (e1) {
+      // Si la conexión de la app falla (p. ej. «Handshake failed» en la Junsun), se intenta desde el navegador interno
+      if (!window.fetch || /tarda/.test(e1.message)) throw e1;
+      j = await Promise.race([fetch(url, { method: 'POST', body: JSON.stringify(body) }).then(r => r.json()), slow(12000)])
+        .catch(e2 => { throw new Error(e1.message + ' / ' + e2.message); });
+      if (j && j.error) throw new Error(e1.message + ' / ' + j.error);
+    }
     let nc = [];
     for (const leg of (j.trip && j.trip.legs) || []) { const pts = decode6(leg.shape); if (nc.length && pts.length) pts.shift(); nc = nc.concat(pts); }
     if (nc.length < 2) { r.matchInfo = 'el servidor no devolvió trazado'; return false; }
