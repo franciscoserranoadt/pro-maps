@@ -88,7 +88,7 @@ const DEF = { voice: true, radars: true, semaforos: true, incid: true, reports: 
   tomtom: '', style: 'auto', tolls: false, highways: false, traffic: false,
   fuel: 'g95', gas: true, limit: true, limitWarn: true, ttinc: true,
   b3d: true, wxfx: true, wxchip: true, trees: false, lamps: false, car: 'arrow', carColor: '#33ccff', lanes: true,
-  label: 'c', zbe: true, zbeShow: true, zbeAvoid: false, parkNear: true, syncCode: '', darkLvl: 'mas',
+  look: 'waze', label: 'c', zbe: true, zbeShow: true, zbeAvoid: false, parkNear: true, syncCode: '', darkLvl: 'mas',
   fatigue: true, hazards: true, curves: true, offlineRoute: true, routeType: 'fastest',
   zoomLvl: 'cerca', autoZoom: true, overhead: true, persp: true, carSize: 'grande', syncSettings: true, sound: 'all', shadows: true, northUp: false, musicBtn: true };
 const cfg = Object.assign({}, DEF, store.get('cfg', {}));
@@ -392,7 +392,10 @@ function removeReport(id) { reports = reports.filter(r => r.id !== id); store.se
 const STYLE = {
   light: 'https://tiles.openfreemap.org/styles/liberty',
   dark: 'https://tiles.openfreemap.org/styles/dark',
-  soft: 'https://tiles.openfreemap.org/styles/positron'
+  soft: 'https://tiles.openfreemap.org/styles/positron',
+  // Estilo Waze: el mismo mapa (OpenFreeMap), con los colores de Waze de día (wzd) y de noche (wzn)
+  wzd: 'https://tiles.openfreemap.org/styles/liberty',
+  wzn: 'https://tiles.openfreemap.org/styles/liberty'
 };
 let map, meMarker, destMarker, styleOk = {};
 let me = null, heading = 0, speedMs = 0, gpsAcc = 99, follow = true;
@@ -426,6 +429,8 @@ function sunTimes(lat, lon, date) {
 }
 function wantedStyle() {
   let k = cfg.style;
+  if (cfg.look === 'waze' && (k === 'auto' || k === 'light' || k === 'dark'))
+    return (k === 'dark' || (k === 'auto' && isNight())) ? 'wzn' : 'wzd';
   if (k === 'auto') k = isNight() ? 'dark' : 'light';
   if (k === 'sat' || k === 'satw') k = 'dark';
   if (k === 'dark' && styleOk.dark === false) k = 'light';
@@ -570,7 +575,48 @@ function lightLabels() {
     } catch (e) { }
   }
 }
+/** Colores estilo Waze sobre el mapa de OpenFreeMap (de día claro y limpio; de noche azul oscuro) */
+const WZ = {
+  d: { bg: '#f2efe9', res: '#efebe5', park: '#cfe8bd', wood: '#bfe0ac', water: '#9fd0f3', bld: '#e2ddd5', rail: '#c9c3ba',
+    mw: ['#f9c74f', '#d79a22'], pri: ['#fde9a6', '#d8b45c'], sec: ['#ffffff', '#c7c1b7'], min: ['#ffffff', '#d4cec5'],
+    txt: '#3a404c', halo: '#ffffff', place: '#2c323d' },
+  n: { bg: '#1c2533', res: '#1e2837', park: '#1f3a33', wood: '#213d30', water: '#0e2136', bld: '#2a364b', rail: '#3a4558',
+    mw: ['#c89a3c', '#6e5019'], pri: ['#6a7a96', '#2b3548'], sec: ['#56637d', '#263043'], min: ['#424e66', '#222b3b'],
+    txt: '#d7dfeb', halo: '#131a26', place: '#eef2f8' }
+};
+function wazeTheme(night) {
+  const P = night ? WZ.n : WZ.d;
+  const set = (id, prop, v) => { try { map.setPaintProperty(id, prop, v); } catch (e) { } };
+  for (const l of map.getStyle().layers || []) {
+    const id = l.id.toLowerCase();
+    if (l.type === 'background') set(l.id, 'background-color', P.bg);
+    else if (l.type === 'fill') {
+      if (/water|ocean|lake|river/.test(id)) set(l.id, 'fill-color', P.water);
+      else if (/wood|forest/.test(id)) set(l.id, 'fill-color', P.wood);
+      else if (/ice|sand/.test(id)) set(l.id, 'fill-color', P.bg);
+      else if (/park|grass|meadow|garden|cemetery|pitch|golf|wetland/.test(id)) set(l.id, 'fill-color', P.park);
+      else if (/building/.test(id)) { set(l.id, 'fill-color', P.bld); set(l.id, 'fill-outline-color', P.bld); }
+      else if (/pier|road_area|aeroway|airport/.test(id)) set(l.id, 'fill-color', P.bg);
+      else set(l.id, 'fill-color', P.res);
+      if (/park|grass|wood/.test(id)) set(l.id, 'fill-opacity', 1);
+    } else if (l.type === 'line') {
+      if (/water|river|stream|canal/.test(id)) { set(l.id, 'line-color', P.water); continue; }
+      if (/rail|transit/.test(id)) { set(l.id, 'line-color', P.rail); continue; }
+      if (/park/.test(id)) { set(l.id, 'line-color', P.park); continue; }
+      if (/path|pedestrian|footway|cycle|ferry|boundary|admin|aeroway|steps/.test(id)) continue;
+      const cas = /casing|outline/.test(id);
+      const c = /motorway/.test(id) ? 'mw' : /trunk|primary/.test(id) ? 'pri' : /secondary|tertiary|major/.test(id) ? 'sec'
+        : /minor|service|link|street|road|highway/.test(id) ? 'min' : null;
+      if (c) set(l.id, 'line-color', P[c][cas ? 1 : 0]);
+    } else if (l.type === 'symbol' && l.layout && l.layout['text-field']) {
+      if (/shield/.test(id)) continue;
+      set(l.id, 'text-color', /place|city|town|village|country|state/.test(id) ? P.place : P.txt);
+      set(l.id, 'text-halo-color', P.halo); set(l.id, 'text-halo-width', 1.6);
+    }
+  }
+}
 function onStyleLoad() {
+  if (curStyle === 'wzd' || curStyle === 'wzn') wazeTheme(curStyle === 'wzn');
   brightenDark();
   lightLabels();
   for (const k in CAT) if (!map.hasImage('i_' + k)) map.addImage('i_' + k, makeIcon(CAT[k].e, CAT[k].c), { pixelRatio: 2 });
@@ -1468,8 +1514,9 @@ function mapOptions() {
     [['std', 'Estándar', 'linear-gradient(160deg,#e9e5dc 0 55%,#cfe3c4 55%)'], ['soft', 'Suave', 'linear-gradient(160deg,#f2f2f2 0 60%,#d9dde3 60%)'],
       ['sat', 'Satélite', 'linear-gradient(160deg,#4a6b3a 0 45%,#7a6a4a 45% 60%,#3c5a2e 60%)']]
       .map(([v, n, bg]) => '<button class="mCard' + (base === v ? ' on' : '') + '" data-base="' + v + '"><div class="pv" style="background:' + bg + '"></div><span>' + n + '</span></button>').join('') + '</div>' +
-    (base === 'std' ? seg('mode', [['auto', 'Auto'], ['day', 'Día'], ['night', 'Noche']], mode) : '') +
-    '<div class="rangeRow"><span data-ic="sun"></span><input type="range" min="0" max="2" step="1" id="darkRange" value="' + ({ normal: 0, mas: 1, mucho: 2 }[cfg.darkLvl] || 0) + '"><span data-ic="moon"></span><small class="muted" id="darkLbl"></small></div>' +
+    (base === 'std' ? seg('look', [['waze', 'Estilo Waze'], ['pro', 'Estilo Pro Maps']], cfg.look === 'pro' ? 'pro' : 'waze') +
+      seg('mode', [['auto', 'Auto'], ['day', 'Día'], ['night', 'Noche']], mode) : '') +
+    (cfg.look === 'pro' || base !== 'std' ? '<div class="rangeRow"><span data-ic="sun"></span><input type="range" min="0" max="2" step="1" id="darkRange" value="' + ({ normal: 0, mas: 1, mucho: 2 }[cfg.darkLvl] || 0) + '"><span data-ic="moon"></span><small class="muted" id="darkLbl"></small></div>' : '') +
     '<div class="sec">En el mapa</div><div class="tiles">' +
     tile('traffic', 'traffic', 'Tráfico') + tile('b3d', 'building', 'Edificios 3D') + tile('radars', 'camera', 'Radares') +
     tile('semaforos', 'traffic', 'Semáforos') + tile('incid', 'alert', 'DGT') + (cfg.tomtom ? tile('ttinc', 'jam', 'Atascos') : '') +
@@ -1479,12 +1526,13 @@ function mapOptions() {
     '<button class="btn alt" id="moSet">' + '⚙️ Más ajustes' + '</button>';
   openSheet(h);
   paintIcons($('#sheetBody'));
-  const lbl = () => { const e = $('#darkLbl'); if (e) e.textContent = 'Brillo de noche: ' + ['oscuro', 'más claro', 'mucho más claro'][+$('#darkRange').value]; };
+  const lbl = () => { const e = $('#darkLbl'); if (e && $('#darkRange')) e.textContent = 'Brillo de noche: ' + ['oscuro', 'más claro', 'mucho más claro'][+$('#darkRange').value]; };
   lbl();
   document.querySelectorAll('#sheetBody .seg button').forEach(b => b.onclick = () => {
     const g = b.parentNode.dataset.seg, v = b.dataset.v;
     if (g === 'view') { cfg.persp = v === '3d'; saveCfg(); camZ = null; if (follow && me) moveCamera(); else map.easeTo({ pitch: cfg.persp ? 50 : 0 }); }
     if (g === 'sound') setSound(v);
+    if (g === 'look') { cfg.look = v; saveCfg(); applyStyle(true); }
     if (g === 'mode') { cfg.style = v === 'day' ? 'light' : v === 'night' ? 'dark' : 'auto'; saveCfg(); applyStyle(true); }
     mapOptions();
   });
@@ -1493,7 +1541,7 @@ function mapOptions() {
     cfg.style = v === 'soft' ? 'soft' : v === 'sat' ? (me && (me[0] < -9.5 || me[0] > 4.5 || me[1] < 35.8 || me[1] > 43.9) ? 'satw' : 'sat') : 'auto';
     saveCfg(); applyStyle(true); mapOptions();
   });
-  $('#darkRange').oninput = () => { cfg.darkLvl = ['normal', 'mas', 'mucho'][+$('#darkRange').value]; saveCfg(); lbl(); applyStyle(true); };
+  if ($('#darkRange')) $('#darkRange').oninput = () => { cfg.darkLvl = ['normal', 'mas', 'mucho'][+$('#darkRange').value]; saveCfg(); lbl(); applyStyle(true); };
   document.querySelectorAll('#sheetBody [data-t]').forEach(b => b.onclick = () => {
     const k = b.dataset.t;
     if (k === 'traffic') { closeSheet(); $('#btnTraffic').onclick(); return; }
@@ -1965,6 +2013,13 @@ function addPoiLabels(src) {
 function b3dPaint() {
   const dark = curStyle === 'dark' || !!SAT[cfg.style];
   const h = ['coalesce', ['get', 'render_height'], ['get', 'height'], 6];
+  if (curStyle === 'wzd' || curStyle === 'wzn') {
+    const n = curStyle === 'wzn';
+    return { 'fill-extrusion-color': ['interpolate', ['linear'], h, 0, n ? '#2c3950' : '#e6e1d9', 40, n ? '#3a4966' : '#d6d0c6'],
+      'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 15, 0, 15.6, h],
+      'fill-extrusion-base': ['interpolate', ['linear'], ['zoom'], 15, 0, 15.6, ['coalesce', ['get', 'render_min_height'], 0]],
+      'fill-extrusion-opacity': 0.92, 'fill-extrusion-vertical-gradient': true };
+  }
   return {
     'fill-extrusion-color': ['interpolate', ['linear'], h, 0, dark ? '#46557a' : '#e4ddd0', 20, dark ? '#55668f' : '#d8cfbf', 60, dark ? '#6b7fab' : '#c9bea9'],
     'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 15, 0, 15.6, h],

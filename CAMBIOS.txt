@@ -1,3 +1,2 @@
-Al elegir ruta, debajo de las tarjetas te avisa si la línea no se ha podido ajustar a las calles y por qué.
-La ruta alternativa que eliges también se ajusta a las calles.
-Más margen de tiempo para ajustar la ruta con conexiones lentas (pantalla del coche).
+Nuevo estilo de mapa tipo Waze (de día claro y limpio, de noche azul oscuro): autovías en amarillo/naranja, calles blancas con borde gris, parques verdes y agua azul.
+Se elige en el botón de capas → Opciones del mapa → «Estilo Waze» o «Estilo Pro Maps» (el de antes).
