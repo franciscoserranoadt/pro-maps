@@ -188,52 +188,101 @@ function encode6(coords) {
  * se sale de la calzada y hace esquinas. Aquí se «pega» a las calles de OpenStreetMap con Valhalla
  * (map matching) y se recolocan las maniobras y los carriles en el nuevo trazado.
  */
-async function matchToRoads(r) {
-  if (!r || r.matched || r.src !== 'TomTom' || r.coords.length < 2) return false;
-  if (!N || !N.post) { r.matchInfo = 'sin conexión nativa'; return false; }
+/** Una petición de ajuste a Valhalla para un trozo de ruta. Devuelve los puntos pegados a las calles */
+async function traceChunk(pts) {
+  const body = { encoded_polyline: encode6(pts), shape_match: 'map_snap', costing: 'auto', directions_options: { units: 'kilometers', directions_type: 'none' } };
+  const url = 'https://valhalla1.openstreetmap.de/trace_route';
+  const slow = ms => new Promise((_, rej) => setTimeout(() => rej(new Error('el servidor tarda demasiado')), ms));
+  let j;
+  try { j = await Promise.race([postJSON(url, body), slow(15000)]); }
+  catch (e1) {
+    // Si la conexión de la app falla (p. ej. «Handshake failed» en la Junsun), se intenta desde el navegador interno
+    if (!window.fetch || /tarda/.test(e1.message)) throw e1;
+    j = await Promise.race([fetch(url, { method: 'POST', body: JSON.stringify(body) }).then(r => r.json()), slow(15000)])
+      .catch(e2 => { throw new Error(e1.message + ' / ' + e2.message); });
+    if (j && j.error) throw new Error(e1.message + ' / ' + j.error);
+  }
+  let nc = [];
+  for (const leg of (j.trip && j.trip.legs) || []) { const p = decode6(leg.shape); if (nc.length && p.length) p.shift(); nc = nc.concat(p); }
+  if (nc.length < 2) throw new Error('el servidor no devolvió trazado');
+  return nc;
+}
+const cumDist = c => { const o = [0]; for (let i = 1; i < c.length; i++) o.push(o[i - 1] + dist(c[i - 1], c[i])); return o; };
+/**
+ * La ruta de TomTom viene dibujada sobre los mapas de TomTom y, sobre nuestro mapa, se sale de la calzada y
+ * hace esquinas. Se «pega» a las calles con Valhalla (map matching), en tramos de unos 140 km para que las
+ * rutas largas también se ajusten (un tramo cada poco más de un segundo, que es lo que permite el servidor
+ * gratuito), y se recolocan las maniobras y los carriles en el nuevo trazado.
+ * Se puede llamar varias veces: todas esperan al mismo ajuste.
+ */
+function matchToRoads(r) {
+  if (!r || r.src !== 'TomTom' || r.coords.length < 2) return Promise.resolve(false);
+  if (r.matchP) return r.matchP;
+  if (!N || !N.post) { r.matchInfo = 'sin conexión nativa'; return Promise.resolve(false); }
   r.matched = true; r.matchInfo = 'ajustando…';
-  const old = r.coords, oc = [0];
-  for (let i = 1; i < old.length; i++) oc.push(oc[i - 1] + dist(old[i - 1], old[i]));
-  const oT = oc[oc.length - 1];
-  if (oT < 50 || oT > 190000) { r.matchInfo = 'ruta demasiado larga para ajustarla'; return false; }
-  try {
-    const body = { encoded_polyline: encode6(old), shape_match: 'map_snap', costing: 'auto', directions_options: { units: 'kilometers', directions_type: 'none' } };
-    const url = 'https://valhalla1.openstreetmap.de/trace_route';
-    const slow = ms => new Promise((_, rej) => setTimeout(() => rej(new Error('el servidor tarda demasiado')), ms));
-    let j;
-    try { j = await Promise.race([postJSON(url, body), slow(12000)]); }
-    catch (e1) {
-      // Si la conexión de la app falla (p. ej. «Handshake failed» en la Junsun), se intenta desde el navegador interno
-      if (!window.fetch || /tarda/.test(e1.message)) throw e1;
-      j = await Promise.race([fetch(url, { method: 'POST', body: JSON.stringify(body) }).then(r => r.json()), slow(12000)])
-        .catch(e2 => { throw new Error(e1.message + ' / ' + e2.message); });
-      if (j && j.error) throw new Error(e1.message + ' / ' + j.error);
-    }
-    let nc = [];
-    for (const leg of (j.trip && j.trip.legs) || []) { const pts = decode6(leg.shape); if (nc.length && pts.length) pts.shift(); nc = nc.concat(pts); }
-    if (nc.length < 2) { r.matchInfo = 'el servidor no devolvió trazado'; return false; }
-    const cc = [0];
-    for (let i = 1; i < nc.length; i++) cc.push(cc[i - 1] + dist(nc[i - 1], nc[i]));
-    const nT = cc[cc.length - 1];
-    const ref = r.len > 0 ? r.len : oT; // longitud real que da TomTom
-    if (nT < ref * 0.8 || nT > ref * 1.25 + 150) { r.matchInfo = 'el ajuste no cuadra (' + Math.round(nT) + ' m frente a ' + Math.round(ref) + ' m)'; return false; } // mejor dejar la de TomTom
-    // índice antiguo -> índice nuevo, por la proporción recorrida
-    const remap = i => { const f = oc[Math.min(i, oc.length - 1)] / oT * nT; let lo = 0, hi = cc.length - 1;
-      while (hi - lo > 1) { const m = (lo + hi) >> 1; if (cc[m] <= f) lo = m; else hi = m; } return lo; };
-    r.steps.forEach(s => s.i = remap(s.i));
-    (r.lanes || []).forEach(l => { l.i0 = remap(l.i0); l.i1 = remap(l.i1); });
-    r.coords = nc; r.matchInfo = 'ok';
-    return true;
-  } catch (e) { r.matchInfo = String(e.message || e).slice(0, 80); console.log('ajuste a calles: ' + e.message); return false; }
+  r.matchP = doMatch(r).catch(e => { r.matchInfo = String(e.message || e).slice(0, 80); return false; });
+  return r.matchP;
+}
+async function doMatch(r) {
+  const old = r.coords, oc = cumDist(old), oT = oc[oc.length - 1];
+  if (oT < 50) { r.matchInfo = 'ruta muy corta'; return false; }
+  if (oT > 1500000) { r.matchInfo = 'ruta demasiado larga para ajustarla'; return false; }
+  // Tramos de ~140 km (el servidor no admite más de 200 km por petición)
+  const parts = []; let a = 0;
+  while (a < old.length - 1) { let b = a + 1; while (b < old.length - 1 && oc[b] - oc[a] < 140000) b++; parts.push([a, b]); a = b; }
+  if (parts.length > 1) r.matchInfo = 'ajustando… (' + parts.length + ' tramos)';
+  const nc = [], segs = []; let ok = 0, firstErr = '';
+  for (let k = 0; k < parts.length; k++) {
+    const [o0, o1] = parts[k], seg = old.slice(o0, o1 + 1), segLen = oc[o1] - oc[o0];
+    if (k) await new Promise(res => setTimeout(res, 1100));
+    let pts;
+    try {
+      pts = await traceChunk(seg);
+      const L = cumDist(pts).pop();
+      if (L < segLen * 0.8 || L > segLen * 1.3 + 150) throw new Error('el ajuste no cuadra (' + Math.round(L) + ' m frente a ' + Math.round(segLen) + ' m)');
+      ok++;
+    } catch (e) { pts = seg; if (!firstErr) firstErr = String(e.message || e).slice(0, 70); } // este tramo se queda como venía
+    const p = pts.slice(); if (nc.length) p.shift();
+    const n0 = nc.length ? nc.length - 1 : 0;
+    for (const q of p) nc.push(q);
+    segs.push({ o0, o1, n0, n1: nc.length - 1 });
+    if (parts.length > 1) r.matchInfo = 'ajustando… (' + (k + 1) + ' de ' + parts.length + ' tramos)';
+  }
+  if (!ok) { r.matchInfo = firstErr || 'no se pudo ajustar'; return false; }
+  const cc = cumDist(nc);
+  // índice antiguo -> índice nuevo, por la proporción recorrida dentro de su tramo
+  const remap = i => {
+    i = Math.max(0, Math.min(i, old.length - 1));
+    const g = segs.find(x => i >= x.o0 && i <= x.o1) || segs[segs.length - 1];
+    const f = (oc[i] - oc[g.o0]) / ((oc[g.o1] - oc[g.o0]) || 1), target = cc[g.n0] + f * (cc[g.n1] - cc[g.n0]);
+    let lo = g.n0, hi = g.n1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (cc[m] <= target) lo = m; else hi = m; }
+    return lo;
+  };
+  r.steps.forEach(s => s.i = remap(s.i));
+  (r.lanes || []).forEach(l => { l.i0 = remap(l.i0); l.i1 = remap(l.i1); });
+  r.coords = nc;
+  r.matchInfo = ok === parts.length ? 'ok' : 'ajustada en parte (' + ok + ' de ' + parts.length + ' tramos): ' + firstErr;
+  return true;
 }
 /** Para una ruta que ya se está usando: se ajusta a las calles sin cortar el guiado */
 async function matchActive(r) {
-  if (!r || r.matched) return;
-  if (await matchToRoads(r)) {
-    prepRoute(r);
-    if (r === active && me) { let bi = 0, bd = 1e9; for (let i = 0; i < r.coords.length - 1; i++) { const pr = projSeg(me, r.coords[i], r.coords[i + 1]); if (pr.d < bd) { bd = pr.d; bi = i; } } nav.idx = bi; navUpdate(); }
-    drawRoutes();
-  }
+  if (!r) return;
+  const fresh = !r.matchP;
+  if (!(await matchToRoads(r))) return;
+  if (fresh || !r.prepAfterMatch) { prepRoute(r); r.prepAfterMatch = true; }
+  if (r === active && navigating && me) { let bi = 0, bd = 1e9; for (let i = 0; i < r.coords.length - 1; i++) { const pr = projSeg(me, r.coords[i], r.coords[i + 1]); if (pr.d < bd) { bd = pr.d; bi = i; } } nav.idx = bi; navUpdate(); }
+  drawRoutes();
+}
+/** En la pantalla de elegir ruta: la elegida se ajusta (en las largas, en segundo plano) y se redibuja al terminar */
+function previewMatch(r) {
+  if (!r || r.src !== 'TomTom' || r.matchInfo === 'ok' && r.prepAfterMatch !== false) return;
+  const was = r.matchP;
+  matchToRoads(r).then(ok => {
+    if (ok && !r.prepAfterMatch) { prepRoute(r); r.prepAfterMatch = true; }
+    if (preview && routes[selIdx] === r) { drawRoutes(); routeSheet(); }
+  });
+  if (!was && preview) setTimeout(() => { if (preview && routes[selIdx] === r && /^ajustando/.test(r.matchInfo || '')) routeSheet(); }, 50);
 }
 function fmtDist(m) {
   if (m < 1000) return (m < 100 ? Math.max(0, Math.round(m / 10) * 10) : Math.round(m / 50) * 50) + ' m';
@@ -979,7 +1028,7 @@ async function routeTomTom2(from, pts, withLanes) {
       lanes: sc.lanes.map(l => ({ d: (l.directions || []).map(ttDir), f: l.follow ? ttDir(l.follow) : null })) }));
     return { coords, steps, lanes, time: r.summary.travelTimeInSeconds, len: r.summary.lengthInMeters, delay: r.summary.trafficDelayInSeconds || 0, src: 'TomTom' };
   });
-  if (out.length) await matchToRoads(out[0]);
+  if (out.length && out[0].len <= 140000) { await matchToRoads(out[0]); out[0].prepAfterMatch = true; } // se prepara después, como las demás
   return out;
 }
 /** Ruta desde «from» pasando por las paradas pendientes hasta el destino */
@@ -1087,7 +1136,7 @@ async function goTo(d, keepStops, walk) {
   preview = true; selIdx = 0; setFollow(false);
   drawRoutes();
   if (CAR) { fitRoutes(); startNav(); closeSheet(); return; }
-  routeSheet(); fitRoutes();
+  routeSheet(); fitRoutes(); previewMatch(routes[selIdx]);
   if (cfg.tomtom && cfg.ttinc) loadTT().then(() => { if (preview && sheetOpen() && $('#rGo')) routeSheet(); });
 }
 function fitRoutes() {
@@ -1124,7 +1173,8 @@ function routeSheet() {
   });
   h += '</div>';
   { const r = routes[selIdx]; if (r && r.src === 'TomTom' && r.matchInfo && r.matchInfo !== 'ok')
-    h += '<div class="rNote">' + (r.matchInfo === 'ajustando…' ? '⏳ Ajustando la línea a las calles…' : '⚠️ Línea sin ajustar a las calles: ' + esc(r.matchInfo)) + '</div>'; }
+    h += '<div class="rNote">' + (/^ajustando/.test(r.matchInfo) ? '⏳ ' + esc(r.matchInfo.replace('ajustando…', 'Ajustando la línea a las calles…')) :
+      /^ajustada en parte/.test(r.matchInfo) ? '⚠️ Línea ' + esc(r.matchInfo) : '⚠️ Línea sin ajustar a las calles: ' + esc(r.matchInfo)) + '</div>'; }
   h += '<div class="rActs"><button class="btn" id="rGo">▶ Iniciar</button>' +
     '<button class="rIco" id="rStop" title="Parada">➕<small>Parada</small></button><button class="rIco" id="rGas">⛽<small>Gasolina</small></button>' +
     '<button class="rIco" id="rList">📋<small>Detalles</small></button><button class="rIco" id="rMore">⋯<small>Más</small></button></div>' +
@@ -1159,7 +1209,7 @@ function routeSheet() {
 function selectRoute(i) {
   selIdx = +i; drawRoutes(); routeSheet();
   const r = routes[selIdx];
-  if (r && !r.matched) matchToRoads(r).then(ok => { if (ok && preview && routes[selIdx] === r) { prepRoute(r); drawRoutes(); routeSheet(); } else if (preview) routeSheet(); });
+  previewMatch(r);
 }
 function stepsSheet(r, fromNav) {
   let h = '<div class="sTitle">Indicaciones</div>';

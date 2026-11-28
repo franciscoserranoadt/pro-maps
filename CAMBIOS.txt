@@ -1,1 +1,2 @@
-Arreglado: con los mapas de Mapbox no salían los edificios en 3D.
+Las rutas largas (más de 140 km, hasta 1.500 km) también se ajustan a la carretera: se ajustan por tramos y en segundo plano, así la ruta sale enseguida y la línea se va colocando sola en unos segundos.
+Mientras tanto, en la tarjeta de rutas pone «Ajustando la línea a las calles… (2 de 4 tramos)».
